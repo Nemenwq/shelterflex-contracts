@@ -1,5 +1,5 @@
 #![no_std]
-use soroban_pausable::{Pausable, PausableError};
+use soroban_pausable_core::{Pausable, PausableError};
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, Address, BytesN, Env, Symbol,
 };

@@ -3,6 +3,9 @@
 use soroban_access_control_core::{require_admin_or_operator_permission, require_admin_permission};
 use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env};
 
+#[cfg(kani)]
+pub mod formal_properties;
+
 // ── Test Harness Contract ─────────────────────────────────────────────────────
 
 #[contracterror]

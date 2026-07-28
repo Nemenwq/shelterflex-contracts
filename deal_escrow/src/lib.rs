@@ -1344,7 +1344,7 @@ mod test {
     use super::{
         ContractError, DataKey, DealEscrow, DealEscrowClient, SettlementOutcome, TokenClient,
     };
-    use soroban_pausable::PausableError;
+    use soroban_pausable_core::PausableError;
     use soroban_sdk::testutils::{Address as _, Ledger, MockAuth, MockAuthInvoke};
     use soroban_sdk::token::StellarAssetClient;
     use soroban_sdk::{Address, BytesN, Env, IntoVal, String, Symbol};

@@ -127,62 +127,114 @@ fn canonical_metadata_payload_v1(
     input: &ReceiptInput,
 ) -> soroban_sdk::Bytes {
     use soroban_sdk::Bytes;
+    use soroban_sdk::xdr::ToXdr;
 
-    extern crate alloc;
-    use alloc::format;
-    use alloc::string::String as StdString;
-    use alloc::string::ToString;
+    // Use XDR serialization to convert Soroban types to bytes
+    let source_bytes = input.external_ref_source.to_val().to_xdr(env);
+    let ext_ref_bytes = input.external_ref.to_val().to_xdr(env);
+    let tx_type_bytes = input.tx_type.to_val().to_xdr(env);
+    let token_bytes = input.token.to_val().to_xdr(env);
+    let deal_id_bytes = input.deal_id.to_val().to_xdr(env);
 
-    let source_str: StdString = input.external_ref_source.to_string();
-    let source_lower = source_str.trim().to_lowercase();
-
-    let ext_ref_str: StdString = input.external_ref.to_string();
-    let ext_ref_trimmed = ext_ref_str.trim();
-
-    let tx_type_str: StdString = input.tx_type.to_string();
-    let token_str: StdString = input.token.to_string().to_string();
-    let deal_id_str: StdString = input.deal_id.to_string().to_string();
-
-    let mut out: StdString = format!(
-        "v1|external_ref_source={}|external_ref={}|tx_type={}|amount_usdc={}|token={}|deal_id={}",
-        source_lower, ext_ref_trimmed, tx_type_str, input.amount_usdc, token_str, deal_id_str,
-    );
+    // Concatenate XDR bytes directly
+    let mut combined = Bytes::new(env);
+    combined.append(&source_bytes);
+    combined.append(&ext_ref_bytes);
+    combined.append(&tx_type_bytes);
+    combined.append(&token_bytes);
+    combined.append(&deal_id_bytes);
+    
+    // Convert i128 to bytes for amount_usdc
+    let mut amount = input.amount_usdc;
+    if amount == 0 {
+        combined.append(&Bytes::from_slice(env, &[b'0']));
+    } else {
+        let mut digits: [u8; 40] = [0; 40];
+        let mut pos = 0;
+        let mut negative = amount < 0;
+        if negative {
+            amount = -amount;
+        }
+        while amount > 0 {
+            digits[pos] = (amount % 10) as u8 + b'0';
+            amount /= 10;
+            pos += 1;
+        }
+        if negative {
+            combined.append(&Bytes::from_slice(env, &[b'-']));
+        }
+        for i in (0..pos).rev() {
+            combined.append(&Bytes::from_slice(env, &[digits[i]]));
+        }
+    }
 
     if let Some(ref listing_id) = input.listing_id {
-        out.push_str("|listing_id=");
-        let s: StdString = listing_id.to_string();
-        out.push_str(s.as_str());
+        combined.append(&listing_id.to_val().to_xdr(env));
     }
 
     if let Some(ref from) = input.from {
-        out.push_str("|from=");
-        let s: StdString = from.to_string().to_string();
-        out.push_str(s.as_str());
+        combined.append(&from.to_val().to_xdr(env));
     }
 
     if let Some(ref to) = input.to {
-        out.push_str("|to=");
-        let s: StdString = to.to_string().to_string();
-        out.push_str(s.as_str());
+        combined.append(&to.to_val().to_xdr(env));
     }
 
     if let Some(amount_ngn) = input.amount_ngn {
-        out.push_str("|amount_ngn=");
-        out.push_str(format!("{}", amount_ngn).as_str());
+        let mut amount = amount_ngn;
+        if amount == 0 {
+            combined.append(&Bytes::from_slice(env, &[b'0']));
+        } else {
+            let mut digits: [u8; 40] = [0; 40];
+            let mut pos = 0;
+            let mut negative = amount < 0;
+            if negative {
+                amount = -amount;
+            }
+            while amount > 0 {
+                digits[pos] = (amount % 10) as u8 + b'0';
+                amount /= 10;
+                pos += 1;
+            }
+            if negative {
+                combined.append(&Bytes::from_slice(env, &[b'-']));
+            }
+            for i in (0..pos).rev() {
+                combined.append(&Bytes::from_slice(env, &[digits[i]]));
+            }
+        }
     }
 
     if let Some(fx_rate) = input.fx_rate_ngn_per_usdc {
-        out.push_str("|fx_rate_ngn_per_usdc=");
-        out.push_str(format!("{}", fx_rate).as_str());
+        let mut rate = fx_rate;
+        if rate == 0 {
+            combined.append(&Bytes::from_slice(env, &[b'0']));
+        } else {
+            let mut digits: [u8; 40] = [0; 40];
+            let mut pos = 0;
+            let mut negative = rate < 0;
+            if negative {
+                rate = -rate;
+            }
+            while rate > 0 {
+                digits[pos] = (rate % 10) as u8 + b'0';
+                rate /= 10;
+                pos += 1;
+            }
+            if negative {
+                combined.append(&Bytes::from_slice(env, &[b'-']));
+            }
+            for i in (0..pos).rev() {
+                combined.append(&Bytes::from_slice(env, &[digits[i]]));
+            }
+        }
     }
 
     if let Some(ref fx_provider) = input.fx_provider {
-        out.push_str("|fx_provider=");
-        let s: StdString = fx_provider.to_string();
-        out.push_str(s.as_str());
+        combined.append(&fx_provider.to_val().to_xdr(env));
     }
 
-    Bytes::from_slice(env, out.as_bytes())
+    combined
 }
 
 fn derive_metadata_hash(env: &soroban_sdk::Env, input: &ReceiptInput) -> BytesN<32> {
@@ -776,15 +828,35 @@ fn require_not_paused(env: &soroban_sdk::Env) -> Result<(), ContractError> {
 /// * `Ok(())` - If the transaction type is valid
 /// * `Err(ContractError::InvalidTxType)` - If the transaction type is not in allowed list
 fn validate_tx_type(tx_type: &Symbol) -> Result<(), ContractError> {
-    use alloc::string::ToString;
-
-    let tx_type_str = tx_type.to_string();
-
-    if !ALLOWED_TX_TYPES.contains(&tx_type_str.as_str()) {
-        return Err(ContractError::InvalidTxType);
+    use soroban_sdk::Bytes;
+    use soroban_sdk::xdr::ToXdr;
+    
+    // Use alloc for hex encoding
+    extern crate alloc;
+    use alloc::format;
+    use alloc::string::String;
+    
+    fn hex_encode(bytes: &Bytes) -> String {
+        let mut s = String::new();
+        for b in bytes.iter() {
+            s.push_str(&format!("{:02x}", b));
+        }
+        s
     }
-
-    Ok(())
+    
+    // Use XDR serialization to convert Symbol to bytes
+    let tx_type_bytes = tx_type.to_val().to_xdr(&soroban_sdk::Env::default());
+    let tx_type_hex = hex_encode(&tx_type_bytes);
+    
+    // Check if the symbol matches any allowed type by comparing hex
+    for allowed in ALLOWED_TX_TYPES.iter() {
+        let allowed_hex = hex_encode(&Bytes::from_slice(&soroban_sdk::Env::default(), allowed.as_bytes()));
+        if tx_type_hex == allowed_hex {
+            return Ok(());
+        }
+    }
+    
+    Err(ContractError::InvalidTxType)
 }
 
 /// Helper function to generate a deterministic transaction ID from external payment references
@@ -812,51 +884,49 @@ fn generate_tx_id(
     external_ref: &String,
 ) -> Result<BytesN<32>, ContractError> {
     use soroban_sdk::Bytes;
+    use soroban_sdk::xdr::ToXdr;
 
-    // Convert Symbol to string for validation
-    // We need to use the alloc feature for string manipulation
-    extern crate alloc;
-    use alloc::string::String as StdString;
-    use alloc::string::ToString;
+    // Use XDR serialization to convert Soroban types to bytes
+    let source_bytes = external_ref_source.to_val().to_xdr(env);
+    let ref_bytes = external_ref.to_val().to_xdr(env);
 
-    let source_str: StdString = external_ref_source.to_string();
-    let source_trimmed = source_str.trim();
-    let source_lower = source_trimmed.to_lowercase();
-
-    // Validate external_ref_source against ALLOWED_SOURCES
-    if !ALLOWED_SOURCES.contains(&source_lower.as_str()) {
+    // Validate external_ref_source against ALLOWED_SOURCES by comparing XDR bytes
+    let mut source_valid = false;
+    for allowed in ALLOWED_SOURCES.iter() {
+        let allowed_bytes = Bytes::from_slice(env, allowed.as_bytes());
+        if source_bytes == allowed_bytes {
+            source_valid = true;
+            break;
+        }
+    }
+    
+    if !source_valid {
         return Err(ContractError::InvalidExternalRefSource);
     }
 
-    // Get the external_ref as a string and trim it
-    let ref_str: StdString = external_ref.to_string();
-    let ref_trimmed = ref_str.trim();
-
-    // Validate external_ref is not empty after trimming
-    if ref_trimmed.is_empty() {
+    // Validate external_ref is not empty
+    if ref_bytes.is_empty() {
         return Err(ContractError::InvalidExternalRef);
     }
 
     // Validate external_ref does not contain pipe character
-    if ref_trimmed.contains('|') {
-        return Err(ContractError::InvalidExternalRef);
+    for b in ref_bytes.iter() {
+        if b == b'|' {
+            return Err(ContractError::InvalidExternalRef);
+        }
     }
 
     // Validate external_ref does not exceed 256 characters
-    if ref_trimmed.len() > 256 {
+    if ref_bytes.len() > 256 {
         return Err(ContractError::InvalidExternalRef);
     }
 
-    // Construct canonical string: "v1|source=<lowercased_trimmed_source>|ref=<trimmed_ref>"
-    use alloc::format;
-    let canonical = format!("v1|source={}|ref={}", source_lower, ref_trimmed);
-
-    // Convert to Bytes for hashing
-    let canonical_bytes = Bytes::from_slice(env, canonical.as_bytes());
-
-    // Compute SHA-256 hash using Soroban's crypto module
-    let hash = env.crypto().sha256(&canonical_bytes);
-
+    // Concatenate bytes and hash
+    let mut combined = Bytes::new(env);
+    combined.append(&source_bytes);
+    combined.append(&ref_bytes);
+    
+    let hash = env.crypto().sha256(&combined);
     Ok(hash.into())
 }
 

@@ -2,7 +2,7 @@
 
 extern crate alloc;
 
-use soroban_pausable::{Pausable, PausableError};
+use soroban_pausable_core::{Pausable, PausableError};
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, token::Client as TokenClient, Address,
     BytesN, Env, String, Symbol, Vec,
@@ -375,27 +375,19 @@ fn exit_nonreentrant(env: &Env) {
 }
 
 fn generate_tx_id(env: &Env, external_ref_source: &Symbol, external_ref: &String) -> BytesN<32> {
-    use alloc::string::ToString;
     use soroban_sdk::Bytes;
-    let source_str = external_ref_source.to_string();
-    let source_trimmed = source_str.trim();
-    let source_lower = {
-        let mut s = alloc::string::String::new();
-        for c in source_trimmed.chars() {
-            for lower in c.to_lowercase() {
-                s.push(lower);
-            }
-        }
-        s
-    };
-    let ref_str = external_ref.to_string();
-    let ref_trimmed = ref_str.trim();
-    let canonical = {
-        use alloc::format;
-        format!("v1|source={}|ref={}", source_lower, ref_trimmed)
-    };
-    let canonical_bytes = Bytes::from_slice(env, canonical.as_bytes());
-    let hash = env.crypto().sha256(&canonical_bytes);
+    use soroban_sdk::xdr::ToXdr;
+    
+    // Use XDR serialization to get bytes from Soroban types
+    let source_bytes = external_ref_source.to_val().to_xdr(env);
+    let ref_bytes = external_ref.to_val().to_xdr(env);
+    
+    // Concatenate XDR bytes directly and hash
+    let mut combined = Bytes::new(env);
+    combined.append(&source_bytes);
+    combined.append(&ref_bytes);
+    
+    let hash = env.crypto().sha256(&combined);
     hash.into()
 }
 

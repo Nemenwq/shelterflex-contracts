@@ -1,13 +1,7 @@
 #![no_std]
 
-extern crate alloc;
-
 #[cfg(test)]
 mod stress_tests;
-
-use alloc::format;
-use alloc::string::ToString;
-use alloc::vec::Vec as StdVec;
 
 use soroban_pausable_core::{Pausable, PausableError};
 use soroban_sdk::{
@@ -323,7 +317,7 @@ fn create_canonical_payload_v1(env: &Env, input: &ReceiptInput) -> Bytes {
     combined.append(&user_bytes);
     combined.append(&deal_id_bytes);
     combined.append(&listing_id_bytes);
-    
+
     // Convert i128 to bytes for amount_usdc
     let mut amount = input.amount_usdc;
     if amount == 0 {
@@ -347,7 +341,7 @@ fn create_canonical_payload_v1(env: &Env, input: &ReceiptInput) -> Bytes {
             combined.append(&Bytes::from_slice(env, &[digits[i]]));
         }
     }
-    
+
     combined
 }
 

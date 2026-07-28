@@ -16,12 +16,6 @@
 
 use soroban_sdk::{contracterror, Address, Env};
 
-#[cfg(kani)]
-mod formal_properties;
-
-#[cfg(kani)]
-pub use formal_properties::*;
-
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]

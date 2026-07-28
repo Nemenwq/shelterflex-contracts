@@ -8,9 +8,7 @@
 //!
 #![no_std]
 
-extern crate alloc;
-
-use soroban_pausable::{Pausable, PausableError};
+use soroban_pausable_core::{Pausable, PausableError};
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, Address, BytesN, String, Symbol,
 };
@@ -81,31 +79,43 @@ fn validate_external_ref(
     external_ref_source: &Symbol,
     external_ref: &String,
 ) -> Result<(), ContractError> {
-    use alloc::string::ToString;
+    use soroban_sdk::xdr::ToXdr;
+    use soroban_sdk::Bytes;
 
-    extern crate alloc;
-    use alloc::string::String as StdString;
+    // Use XDR serialization to convert Soroban types to bytes
+    let source_bytes = external_ref_source
+        .to_val()
+        .to_xdr(&soroban_sdk::Env::default());
+    let ref_bytes = external_ref.to_val().to_xdr(&soroban_sdk::Env::default());
 
-    let source_str: StdString = external_ref_source.to_string();
-    let source_trimmed = source_str.trim();
-    let source_lower = source_trimmed.to_lowercase();
+    // Validate external_ref_source against ALLOWED_SOURCES by comparing XDR bytes
+    let mut source_valid = false;
+    for allowed in ALLOWED_SOURCES.iter() {
+        let allowed_bytes = Bytes::from_slice(&soroban_sdk::Env::default(), allowed.as_bytes());
+        if source_bytes == allowed_bytes {
+            source_valid = true;
+            break;
+        }
+    }
 
-    if !ALLOWED_SOURCES.contains(&source_lower.as_str()) {
+    if !source_valid {
         return Err(ContractError::InvalidExternalRefSource);
     }
 
-    let ref_str: StdString = external_ref.to_string();
-    let ref_trimmed = ref_str.trim();
-
-    if ref_trimmed.is_empty() {
+    // Validate external_ref is not empty
+    if ref_bytes.is_empty() {
         return Err(ContractError::InvalidExternalRef);
     }
 
-    if ref_trimmed.contains('|') {
-        return Err(ContractError::InvalidExternalRef);
+    // Validate external_ref does not contain pipe character
+    for b in ref_bytes.iter() {
+        if b == b'|' {
+            return Err(ContractError::InvalidExternalRef);
+        }
     }
 
-    if ref_trimmed.len() > 256 {
+    // Validate external_ref does not exceed 256 characters
+    if ref_bytes.len() > 256 {
         return Err(ContractError::InvalidExternalRef);
     }
 
@@ -126,8 +136,8 @@ fn canonical_metadata_payload_v1(
     env: &soroban_sdk::Env,
     input: &ReceiptInput,
 ) -> soroban_sdk::Bytes {
-    use soroban_sdk::Bytes;
     use soroban_sdk::xdr::ToXdr;
+    use soroban_sdk::Bytes;
 
     // Use XDR serialization to convert Soroban types to bytes
     let source_bytes = input.external_ref_source.to_val().to_xdr(env);
@@ -143,7 +153,7 @@ fn canonical_metadata_payload_v1(
     combined.append(&tx_type_bytes);
     combined.append(&token_bytes);
     combined.append(&deal_id_bytes);
-    
+
     // Convert i128 to bytes for amount_usdc
     let mut amount = input.amount_usdc;
     if amount == 0 {
@@ -828,34 +838,20 @@ fn require_not_paused(env: &soroban_sdk::Env) -> Result<(), ContractError> {
 /// * `Ok(())` - If the transaction type is valid
 /// * `Err(ContractError::InvalidTxType)` - If the transaction type is not in allowed list
 fn validate_tx_type(tx_type: &Symbol) -> Result<(), ContractError> {
-    use soroban_sdk::Bytes;
     use soroban_sdk::xdr::ToXdr;
-    
-    // Use alloc for hex encoding
-    extern crate alloc;
-    use alloc::format;
-    use alloc::string::String;
-    
-    fn hex_encode(bytes: &Bytes) -> String {
-        let mut s = String::new();
-        for b in bytes.iter() {
-            s.push_str(&format!("{:02x}", b));
-        }
-        s
-    }
-    
+    use soroban_sdk::Bytes;
+
     // Use XDR serialization to convert Symbol to bytes
     let tx_type_bytes = tx_type.to_val().to_xdr(&soroban_sdk::Env::default());
-    let tx_type_hex = hex_encode(&tx_type_bytes);
-    
-    // Check if the symbol matches any allowed type by comparing hex
+
+    // Check if the symbol matches any allowed type by comparing XDR bytes
     for allowed in ALLOWED_TX_TYPES.iter() {
-        let allowed_hex = hex_encode(&Bytes::from_slice(&soroban_sdk::Env::default(), allowed.as_bytes()));
-        if tx_type_hex == allowed_hex {
+        let allowed_bytes = Bytes::from_slice(&soroban_sdk::Env::default(), allowed.as_bytes());
+        if tx_type_bytes == allowed_bytes {
             return Ok(());
         }
     }
-    
+
     Err(ContractError::InvalidTxType)
 }
 
@@ -883,8 +879,8 @@ fn generate_tx_id(
     external_ref_source: &Symbol,
     external_ref: &String,
 ) -> Result<BytesN<32>, ContractError> {
-    use soroban_sdk::Bytes;
     use soroban_sdk::xdr::ToXdr;
+    use soroban_sdk::Bytes;
 
     // Use XDR serialization to convert Soroban types to bytes
     let source_bytes = external_ref_source.to_val().to_xdr(env);
@@ -899,7 +895,7 @@ fn generate_tx_id(
             break;
         }
     }
-    
+
     if !source_valid {
         return Err(ContractError::InvalidExternalRefSource);
     }
@@ -925,7 +921,7 @@ fn generate_tx_id(
     let mut combined = Bytes::new(env);
     combined.append(&source_bytes);
     combined.append(&ref_bytes);
-    
+
     let hash = env.crypto().sha256(&combined);
     Ok(hash.into())
 }

@@ -190,6 +190,16 @@ fn accrue_user_rewards(env: &Env, user: &Address) {
         .set(&DataKey::UserRewardIndex(user.clone()), &global_idx);
 }
 
+/// Acquire the contract-wide reentrancy lock before an external token call.
+fn enter_nonreentrant(env: &Env) -> Result<(), ContractError> {
+    soroban_reentrancy_guard::enter(env, &DataKey::Reentrancy, ContractError::ReentrancyDetected)
+}
+
+/// Release the reentrancy lock once the external token call has returned.
+fn exit_nonreentrant(env: &Env) {
+    soroban_reentrancy_guard::exit(env, &DataKey::Reentrancy);
+}
+
 #[contractimpl]
 impl StakingPool {
     pub fn init(env: Env, admin: Address, token: Address) {
@@ -230,22 +240,23 @@ impl StakingPool {
 
         accrue_user_rewards(&env, &user);
 
-        let token_address = get_token(&env);
-        let token_client = TokenClient::new(&env, &token_address);
-
-        // Transfer tokens from user to contract
-        token_client.transfer(&user, &env.current_contract_address(), &amount);
-
-        // Update staked balance
+        // Effects: write all state before the external transfer (checks-effects-interactions).
         let current_balance = get_staked_balance(&env, &user);
         env.storage().persistent().set(
             &DataKey::StakedBalance(user.clone()),
             &(current_balance + amount),
         );
-
-        // Update total staked
         let total = get_total_staked(&env);
         put_total_staked(&env, total + amount);
+
+        // Interaction: guarded external token call.
+        if enter_nonreentrant(&env).is_err() {
+            panic!("reentrancy detected");
+        }
+        let token_address = get_token(&env);
+        let token_client = TokenClient::new(&env, &token_address);
+        token_client.transfer(&user, &env.current_contract_address(), &amount);
+        exit_nonreentrant(&env);
 
         env.events()
             .publish((Symbol::new(&env, "stake"), user.clone()), amount);
@@ -289,7 +300,9 @@ impl StakingPool {
         let total = get_total_staked(&env);
         put_total_staked(&env, total - amount);
 
+        enter_nonreentrant(&env)?;
         token_client.transfer(&env.current_contract_address(), &user, &amount);
+        exit_nonreentrant(&env);
 
         env.events()
             .publish((Symbol::new(&env, "unstake"), user.clone()), amount);
@@ -367,9 +380,13 @@ impl StakingPool {
             panic!("no stakers");
         }
 
+        if enter_nonreentrant(&env).is_err() {
+            panic!("reentrancy detected");
+        }
         let token_address = get_token(&env);
         let token_client = TokenClient::new(&env, &token_address);
         token_client.transfer(&from, &env.current_contract_address(), &amount);
+        exit_nonreentrant(&env);
 
         let increment = (amount * REWARD_INDEX_SCALE) / total;
         let new_idx = get_global_reward_index(&env) + increment;
@@ -399,9 +416,13 @@ impl StakingPool {
             .persistent()
             .set(&DataKey::ClaimableReward(to.clone()), &0i128);
 
+        if enter_nonreentrant(&env).is_err() {
+            panic!("reentrancy detected");
+        }
         let token_address = get_token(&env);
         let token_client = TokenClient::new(&env, &token_address);
         token_client.transfer(&env.current_contract_address(), &to, &amount);
+        exit_nonreentrant(&env);
 
         env.events()
             .publish((Symbol::new(&env, "claim"), to.clone()), amount);
@@ -1429,5 +1450,119 @@ mod reward_math_invariants {
         let second = client.claim(&user);
         assert_eq!(second, 0i128, "second claim must return zero");
         assert_eq!(client.claimable(&user), 0i128);
+    }
+}
+
+// ============================================================================
+// Reentrancy Guard Tests
+//
+// A malicious token whose `transfer` re-enters a guarded path must be blocked
+// by the reentrancy lock. The token records the nested call's error so the
+// test can assert the guard returned `ReentrancyDetected` on the re-entry.
+// ============================================================================
+#[cfg(test)]
+mod reentrancy_guard_tests {
+    extern crate std;
+
+    use super::{ContractError, StakingPool, StakingPoolClient};
+    use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::{contract, contractimpl, Address, Env, Symbol};
+
+    // A token stand-in whose `transfer` optionally re-enters the pool's
+    // `unstake`. When armed, it records whether the nested call was rejected
+    // with `ReentrancyDetected`.
+    #[contract]
+    struct ReentrantToken;
+
+    #[contractimpl]
+    impl ReentrantToken {
+        pub fn configure(env: Env, pool: Address, user: Address) {
+            env.storage()
+                .instance()
+                .set(&Symbol::new(&env, "pool"), &pool);
+            env.storage()
+                .instance()
+                .set(&Symbol::new(&env, "user"), &user);
+            env.storage()
+                .instance()
+                .set(&Symbol::new(&env, "armed"), &false);
+        }
+
+        pub fn arm(env: Env) {
+            env.storage()
+                .instance()
+                .set(&Symbol::new(&env, "armed"), &true);
+        }
+
+        pub fn saw_reentrancy_reject(env: Env) -> bool {
+            env.storage()
+                .instance()
+                .get(&Symbol::new(&env, "rejected"))
+                .unwrap_or(false)
+        }
+
+        // Subset of the token interface the pool invokes.
+        pub fn transfer(env: Env, _from: Address, _to: Address, _amount: i128) {
+            let armed: bool = env
+                .storage()
+                .instance()
+                .get(&Symbol::new(&env, "armed"))
+                .unwrap_or(false);
+            if !armed {
+                return;
+            }
+            // Only re-enter once, to avoid unbounded recursion.
+            env.storage()
+                .instance()
+                .set(&Symbol::new(&env, "armed"), &false);
+
+            let pool: Address = env
+                .storage()
+                .instance()
+                .get(&Symbol::new(&env, "pool"))
+                .unwrap();
+            let user: Address = env
+                .storage()
+                .instance()
+                .get(&Symbol::new(&env, "user"))
+                .unwrap();
+            let client = StakingPoolClient::new(&env, &pool);
+            let nested = client.try_unstake(&user, &1i128);
+            let rejected = matches!(nested, Err(Ok(ContractError::ReentrancyDetected)));
+            env.storage()
+                .instance()
+                .set(&Symbol::new(&env, "rejected"), &rejected);
+        }
+    }
+
+    #[test]
+    fn reentrant_unstake_is_rejected_by_guard() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        // Register both a real SAC (to fund the pool) and the malicious token.
+        let malicious = env.register(ReentrantToken, ());
+        let pool_id = env.register(StakingPool, ());
+        let client = StakingPoolClient::new(&env, &pool_id);
+
+        let admin = Address::generate(&env);
+        let user = Address::generate(&env);
+
+        // Point the pool at the malicious token.
+        client.init(&admin, &malicious);
+        ReentrantTokenClient::new(&env, &malicious).configure(&pool_id, &user);
+
+        // Seed a staked balance with re-entry disarmed (transfer is a no-op).
+        client.stake(&user, &100i128);
+
+        // Arm the callback, then unstake: the token's transfer re-enters
+        // `unstake`, which the guard must reject with `ReentrancyDetected`.
+        ReentrantTokenClient::new(&env, &malicious).arm();
+        client.unstake(&user, &10i128);
+
+        assert!(
+            ReentrantTokenClient::new(&env, &malicious).saw_reentrancy_reject(),
+            "nested unstake during token transfer must be rejected by the reentrancy guard"
+        );
     }
 }

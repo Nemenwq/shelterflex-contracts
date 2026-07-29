@@ -1,4 +1,4 @@
-# Rent Payments Contract
+# Rent Payments Contract 
 
 A Soroban smart contract for managing rent payment receipts with cursor-based pagination.
 

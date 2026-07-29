@@ -29,6 +29,8 @@ pub enum DataKey {
     UpgradeDelay,
     PendingUpgradeHash,
     PendingUpgradeAt,
+    /// Reentrancy lock for cross-contract (token) call protection.
+    Reentrancy,
 }
 
 #[contracterror]
@@ -44,6 +46,8 @@ pub enum ContractError {
     InsufficientUnusedStake = 5,
     /// Admin utilization exceeds user's unused stake.
     UtilizationExceedsUnused = 6,
+    /// Reentrancy detected — nested call rejected.
+    ReentrancyDetected = 7,
 }
 
 #[contract]

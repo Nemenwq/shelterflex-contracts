@@ -969,6 +969,7 @@ version = "0.1.0"
 dependencies = [
  "soroban-pausable",
  "soroban-sdk",
+ "soroban_reentrancy_guard",
 ]
 
 [[package]]

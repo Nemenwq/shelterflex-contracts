@@ -458,9 +458,9 @@ version = "0.1.0"
 dependencies = [
  "rent_payments",
  "rent_wallet",
- "soroban-pausable",
  "soroban-sdk",
- "soroban_access_control",
+ "soroban_access_control_core",
+ "soroban_pausable_core",
  "soroban_reentrancy_guard",
 ]
 
@@ -864,9 +864,9 @@ checksum = "8e04e2fd2b8188ea827b32ef11de88377086d690286ab35747ef7f9bf3ccb590"
 name = "inspector_bond"
 version = "0.1.0"
 dependencies = [
- "soroban-pausable",
  "soroban-sdk",
- "soroban_access_control",
+ "soroban_access_control_core",
+ "soroban_pausable_core",
  "soroban_reentrancy_guard",
 ]
 
@@ -967,9 +967,9 @@ dependencies = [
 name = "mvp-staking-pool"
 version = "0.1.0"
 dependencies = [
- "soroban-pausable",
  "soroban-sdk",
  "soroban_reentrancy_guard",
+ "soroban_pausable_core",
 ]
 
 [[package]]
@@ -1028,7 +1028,7 @@ name = "oracle_price_feeds"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
- "soroban_access_control",
+ "soroban_access_control_core",
 ]
 
 [[package]]
@@ -1248,8 +1248,8 @@ checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
 name = "rent_payments"
 version = "0.1.0"
 dependencies = [
- "soroban-pausable",
  "soroban-sdk",
+ "soroban_pausable_core",
 ]
 
 [[package]]
@@ -1271,9 +1271,9 @@ dependencies = [
 name = "rent_wallet"
 version = "0.1.0"
 dependencies = [
- "soroban-pausable",
  "soroban-sdk",
- "soroban_access_control",
+ "soroban_access_control_core",
+ "soroban_pausable_core",
 ]
 
 [[package]]
@@ -1611,6 +1611,7 @@ name = "soroban-pausable"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "soroban_pausable_core",
 ]
 
 [[package]]
@@ -1701,6 +1702,21 @@ name = "soroban_access_control"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "soroban_access_control_core",
+]
+
+[[package]]
+name = "soroban_access_control_core"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
+name = "soroban_pausable_core"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
 ]
 
 [[package]]
@@ -1739,9 +1755,9 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
- "soroban-pausable",
  "soroban-sdk",
- "soroban_access_control",
+ "soroban_access_control_core",
+ "soroban_pausable_core",
  "soroban_reentrancy_guard",
 ]
 
@@ -1749,8 +1765,8 @@ dependencies = [
 name = "staking_rewards"
 version = "0.1.0"
 dependencies = [
- "soroban-pausable",
  "soroban-sdk",
+ "soroban_pausable_core",
 ]
 
 [[package]]
@@ -1837,9 +1853,9 @@ dependencies = [
 name = "tenant_reputation"
 version = "0.1.0"
 dependencies = [
- "soroban-pausable",
  "soroban-sdk",
- "soroban_access_control",
+ "soroban_access_control_core",
+ "soroban_pausable_core",
 ]
 
 [[package]]
@@ -1907,8 +1923,8 @@ dependencies = [
  "proptest",
  "serde",
  "serde_json",
- "soroban-pausable",
  "soroban-sdk",
+ "soroban_pausable_core",
 ]
 
 [[package]]
@@ -1945,8 +1961,8 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 name = "vesting_schedule"
 version = "0.1.0"
 dependencies = [
- "soroban-pausable",
  "soroban-sdk",
+ "soroban_pausable_core",
  "soroban_reentrancy_guard",
 ]
 
@@ -2103,8 +2119,8 @@ dependencies = [
 name = "whistleblower_rewards"
 version = "0.1.0"
 dependencies = [
- "soroban-pausable",
  "soroban-sdk",
+ "soroban_pausable_core",
 ]
 
 [[package]]

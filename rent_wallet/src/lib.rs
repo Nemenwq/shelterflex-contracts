@@ -1,6 +1,6 @@
 #![no_std]
 
-use soroban_pausable::{Pausable, PausableError};
+use soroban_pausable_core::{Pausable, PausableError};
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, Address, BytesN, Env, Symbol,
 };
@@ -1173,7 +1173,7 @@ mod test {
             },
         }]);
         let err = client.try_pause(&non_admin).unwrap_err().unwrap();
-        assert_eq!(err, soroban_pausable::PausableError::NotAuthorized);
+        assert_eq!(err, soroban_pausable_core::PausableError::NotAuthorized);
     }
 
     #[test]
@@ -1204,7 +1204,7 @@ mod test {
             },
         }]);
         let err = client.try_unpause(&non_admin).unwrap_err().unwrap();
-        assert_eq!(err, soroban_pausable::PausableError::NotAuthorized);
+        assert_eq!(err, soroban_pausable_core::PausableError::NotAuthorized);
     }
 
     #[test]

@@ -8,7 +8,7 @@ pub fn require_admin_permission(
     caller: &Address,
     operation: &str,
 ) -> Result<(), ContractError> {
-    soroban_access_control::require_admin_permission(
+    soroban_access_control_core::require_admin_permission(
         env,
         admin,
         caller,
@@ -24,7 +24,7 @@ pub fn require_admin_or_operator_permission(
     caller: &Address,
     operation: &str,
 ) -> Result<(), ContractError> {
-    soroban_access_control::require_admin_or_operator_permission(
+    soroban_access_control_core::require_admin_or_operator_permission(
         env,
         admin,
         Some(operator),

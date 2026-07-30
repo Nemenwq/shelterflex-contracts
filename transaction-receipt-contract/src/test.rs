@@ -608,7 +608,7 @@ fn test_pause_not_authorized() {
     assert!(result.is_err());
     assert_eq!(
         result.unwrap_err().unwrap(),
-        soroban_pausable::PausableError::NotAuthorized
+        soroban_pausable_core::PausableError::NotAuthorized
     );
 
     // Verify paused state is still false
@@ -712,7 +712,7 @@ fn test_unpause_not_authorized() {
     assert!(result.is_err());
     assert_eq!(
         result.unwrap_err().unwrap(),
-        soroban_pausable::PausableError::NotAuthorized
+        soroban_pausable_core::PausableError::NotAuthorized
     );
 
     // Verify paused state is still true

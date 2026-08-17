@@ -76,22 +76,23 @@ pub struct ReceiptInput {
 /// This enforces the same invariants as `generate_tx_id`, but can be used
 /// independently in validation flows.
 fn validate_external_ref(
+    env: &soroban_sdk::Env,
     external_ref_source: &Symbol,
     external_ref: &String,
 ) -> Result<(), ContractError> {
     use soroban_sdk::xdr::ToXdr;
-    use soroban_sdk::Bytes;
 
-    // Use XDR serialization to convert Soroban types to bytes
-    let source_bytes = external_ref_source
-        .to_val()
-        .to_xdr(&soroban_sdk::Env::default());
-    let ref_bytes = external_ref.to_val().to_xdr(&soroban_sdk::Env::default());
+    // Serialize the caller's Symbol and each allowed source with the SAME env, then
+    // compare like-for-like. Comparing an XDR-serialized Symbol against a raw byte
+    // slice never matches (XDR adds type/length framing), and serializing with a
+    // throwaway `Env::default()` is incorrect for object-backed (>9 char) symbols.
+    let source_bytes = external_ref_source.to_val().to_xdr(env);
+    let ref_bytes = external_ref.to_val().to_xdr(env);
 
     // Validate external_ref_source against ALLOWED_SOURCES by comparing XDR bytes
     let mut source_valid = false;
     for allowed in ALLOWED_SOURCES.iter() {
-        let allowed_bytes = Bytes::from_slice(&soroban_sdk::Env::default(), allowed.as_bytes());
+        let allowed_bytes = Symbol::new(env, allowed).to_val().to_xdr(env);
         if source_bytes == allowed_bytes {
             source_valid = true;
             break;
@@ -340,8 +341,6 @@ pub enum ContractError {
     InvalidMetadataHash = 10,
 }
 
-#[cfg(kani)]
-pub mod formal_properties;
 #[contract]
 /// Primary contract type. All public contract methods are implemented on this
 /// struct via the `#[contractimpl]` impl block.
@@ -495,10 +494,10 @@ impl TransactionReceiptContract {
         }
 
         // Validate tx_type is in allowed list
-        validate_tx_type(&input.tx_type)?;
+        validate_tx_type(&env, &input.tx_type)?;
 
         // Validate external reference source and reference
-        validate_external_ref(&input.external_ref_source, &input.external_ref)?;
+        validate_external_ref(&env, &input.external_ref_source, &input.external_ref)?;
 
         // Generate tx_id from canonical external reference
         let tx_id = generate_tx_id(&env, &input.external_ref_source, &input.external_ref)?;
@@ -837,16 +836,16 @@ fn require_not_paused(env: &soroban_sdk::Env) -> Result<(), ContractError> {
 /// # Returns
 /// * `Ok(())` - If the transaction type is valid
 /// * `Err(ContractError::InvalidTxType)` - If the transaction type is not in allowed list
-fn validate_tx_type(tx_type: &Symbol) -> Result<(), ContractError> {
+fn validate_tx_type(env: &soroban_sdk::Env, tx_type: &Symbol) -> Result<(), ContractError> {
     use soroban_sdk::xdr::ToXdr;
-    use soroban_sdk::Bytes;
 
-    // Use XDR serialization to convert Symbol to bytes
-    let tx_type_bytes = tx_type.to_val().to_xdr(&soroban_sdk::Env::default());
+    // Serialize the caller's Symbol and each allowed type with the SAME env and
+    // compare like-for-like (see validate_external_ref for why raw-byte comparison
+    // and a throwaway Env::default() are both wrong).
+    let tx_type_bytes = tx_type.to_val().to_xdr(env);
 
-    // Check if the symbol matches any allowed type by comparing XDR bytes
     for allowed in ALLOWED_TX_TYPES.iter() {
-        let allowed_bytes = Bytes::from_slice(&soroban_sdk::Env::default(), allowed.as_bytes());
+        let allowed_bytes = Symbol::new(env, allowed).to_val().to_xdr(env);
         if tx_type_bytes == allowed_bytes {
             return Ok(());
         }
@@ -887,9 +886,11 @@ fn generate_tx_id(
     let ref_bytes = external_ref.to_val().to_xdr(env);
 
     // Validate external_ref_source against ALLOWED_SOURCES by comparing XDR bytes
+    // (serialize each allowed source as a Symbol with the same env — comparing an
+    // XDR-serialized Symbol against a raw byte slice never matches).
     let mut source_valid = false;
     for allowed in ALLOWED_SOURCES.iter() {
-        let allowed_bytes = Bytes::from_slice(env, allowed.as_bytes());
+        let allowed_bytes = Symbol::new(env, allowed).to_val().to_xdr(env);
         if source_bytes == allowed_bytes {
             source_valid = true;
             break;
@@ -927,7 +928,13 @@ fn generate_tx_id(
 }
 
 pub mod immutability_properties;
-// Test modules disabled due to XDR serialization compatibility issues in test environment
+
+#[cfg(test)]
+mod integration_tests;
+#[cfg(test)]
+mod test;
+#[cfg(test)]
+mod tests;
 // mod integration_tests;
 // mod test;
 // mod tests;

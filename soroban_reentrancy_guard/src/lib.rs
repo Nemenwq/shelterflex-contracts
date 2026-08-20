@@ -28,6 +28,10 @@
 //!
 //! The flag lives in **instance** storage, matching every existing hand-rolled
 //! guard: the lock is contract-wide, not per-user.
+//!
+//! **IMPORTANT:** This guard protects against same-contract re-entry only. It does
+//! NOT protect against cross-contract re-entry (e.g., token callbacks) because
+//! instance storage is not visible across contract invocation frames in Soroban SDK 22.
 
 use soroban_sdk::{Env, IntoVal, Val};
 

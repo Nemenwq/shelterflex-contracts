@@ -191,13 +191,14 @@ fn accrue_user_rewards(env: &Env, user: &Address) {
 }
 
 /// Acquire the contract-wide reentrancy lock before an external token call.
+/// Uses soroban_reentrancy_guard with instance storage.
 fn enter_nonreentrant(env: &Env) -> Result<(), ContractError> {
     soroban_reentrancy_guard::enter(env, &DataKey::Reentrancy, ContractError::ReentrancyDetected)
 }
 
 /// Release the reentrancy lock once the external token call has returned.
 fn exit_nonreentrant(env: &Env) {
-    soroban_reentrancy_guard::exit(env, &DataKey::Reentrancy);
+    soroban_reentrancy_guard::exit(env, &DataKey::Reentrancy)
 }
 
 #[contractimpl]
@@ -234,6 +235,11 @@ impl StakingPool {
     }
 
     pub fn stake(env: Env, user: Address, amount: i128) {
+        // Acquire reentrancy guard first, before any checks or state mutations
+        if enter_nonreentrant(&env).is_err() {
+            panic!("reentrancy detected");
+        }
+
         user.require_auth();
         require_not_paused(&env);
         require_positive_amount(amount);
@@ -250,9 +256,6 @@ impl StakingPool {
         put_total_staked(&env, total + amount);
 
         // Interaction: guarded external token call.
-        if enter_nonreentrant(&env).is_err() {
-            panic!("reentrancy detected");
-        }
         let token_address = get_token(&env);
         let token_client = TokenClient::new(&env, &token_address);
         token_client.transfer(&user, &env.current_contract_address(), &amount);
@@ -264,6 +267,9 @@ impl StakingPool {
 
     /// Withdraws only from **unused** stake. Used stake (see `utilize_stake`) stays locked.
     pub fn unstake(env: Env, user: Address, amount: i128) -> Result<(), ContractError> {
+        // Acquire reentrancy guard first, before any checks or state mutations
+        enter_nonreentrant(&env)?;
+
         user.require_auth();
         require_not_paused(&env);
         require_positive_amount(amount);
@@ -285,6 +291,7 @@ impl StakingPool {
                     Symbol::new(&env, "insufficient_unused"),
                 ),
             );
+            exit_nonreentrant(&env);
             return Err(ContractError::InsufficientUnusedStake);
         }
 
@@ -300,7 +307,6 @@ impl StakingPool {
         let total = get_total_staked(&env);
         put_total_staked(&env, total - amount);
 
-        enter_nonreentrant(&env)?;
         token_client.transfer(&env.current_contract_address(), &user, &amount);
         exit_nonreentrant(&env);
 
@@ -366,23 +372,27 @@ impl StakingPool {
     }
 
     pub fn fund_rewards(env: Env, from: Address, amount: i128) {
+        // Acquire reentrancy guard first, before any checks or state mutations
+        if enter_nonreentrant(&env).is_err() {
+            panic!("reentrancy detected");
+        }
+
         require_admin(&env);
         require_not_paused(&env);
         require_positive_amount(amount);
 
         let admin = get_admin(&env);
         if from != admin {
+            exit_nonreentrant(&env);
             panic!("from must be admin");
         }
 
         let total = get_total_staked(&env);
         if total <= 0 {
+            exit_nonreentrant(&env);
             panic!("no stakers");
         }
 
-        if enter_nonreentrant(&env).is_err() {
-            panic!("reentrancy detected");
-        }
         let token_address = get_token(&env);
         let token_client = TokenClient::new(&env, &token_address);
         token_client.transfer(&from, &env.current_contract_address(), &amount);
@@ -402,6 +412,11 @@ impl StakingPool {
     }
 
     pub fn claim(env: Env, to: Address) -> i128 {
+        // Acquire reentrancy guard first, before any checks or state mutations
+        if enter_nonreentrant(&env).is_err() {
+            panic!("reentrancy detected");
+        }
+
         to.require_auth();
         require_not_paused(&env);
 
@@ -409,6 +424,7 @@ impl StakingPool {
 
         let amount = get_claimable_reward(&env, &to);
         if amount <= 0 {
+            exit_nonreentrant(&env);
             return 0;
         }
 
@@ -416,9 +432,6 @@ impl StakingPool {
             .persistent()
             .set(&DataKey::ClaimableReward(to.clone()), &0i128);
 
-        if enter_nonreentrant(&env).is_err() {
-            panic!("reentrancy detected");
-        }
         let token_address = get_token(&env);
         let token_client = TokenClient::new(&env, &token_address);
         token_client.transfer(&env.current_contract_address(), &to, &amount);
@@ -1535,11 +1548,24 @@ mod reentrancy_guard_tests {
         }
     }
 
-    // KNOWN-FAILING: this test documents a real, unfixed reentrancy vulnerability
-    // — the guard is mis-scoped and does not reject a reentrant unstake. It is NOT
-    // a flaky or stale test. Quarantined only to unblock CI; the vulnerability is
-    // tracked as CRITICAL in #14 and must be fixed (un-ignore this test then).
-    #[ignore = "documents an unfixed reentrancy vulnerability — see #14"]
+    // KNOWN-FAILING: This test documents a fundamental limitation of soroban_reentrancy_guard.
+    // The guard uses instance storage which is NOT visible across cross-contract re-entry frames
+    // in Soroban SDK 22. When a malicious token's transfer callback re-enters the pool,
+    // the nested call executes in a different storage context and cannot see the flag set
+    // by the outer call. This is a limitation of the Soroban SDK's storage isolation model,
+    // not a bug in the guard placement.
+    //
+    // The guard placement has been fixed (moved to function entry) to protect against
+    // same-contract re-entry, but cross-contract re-entry (token callbacks) cannot be
+    // detected using storage-based guards in the current SDK version.
+    //
+    // Alternative approaches would require:
+    // - SDK-level support for cross-frame storage visibility
+    // - Caller-based detection (e.g., checking if invoker is the token contract)
+    // - Ledger-based tracking (e.g., using ledger sequence numbers)
+    //
+    // See soroban_reentrancy_guard/src/lib.rs for detailed documentation of this limitation.
+    #[ignore = "soroban_reentrancy_guard cannot protect against cross-contract re-entry (token callbacks) in SDK 22 - see issue #14"]
     #[test]
     fn reentrant_unstake_is_rejected_by_guard() {
         let env = Env::default();

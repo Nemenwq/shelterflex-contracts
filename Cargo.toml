@@ -23,6 +23,7 @@ members = [
   "bond_collateral",
   "reentrancy_guard",
   "soroban_reentrancy_guard",
+  "soroban_storage_ttl",
   "epoch_rewards",
   "slashing_module",
   "stake_delegation",

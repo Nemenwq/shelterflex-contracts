@@ -26,6 +26,7 @@ The contracts directory is a Cargo workspace. Each subdirectory is a separate co
 | `soroban_access_control/` | Shared access-control primitives |
 | `soroban_pausable/` | Shared pausable primitive used across contracts |
 | `contract_access/` | Contract-level access helpers |
+| `soroban_storage_ttl/` | Shared storage TTL policy — see [docs/contracts/STORAGE_TTL.md](docs/contracts/STORAGE_TTL.md) |
 
 ## Formal Verification
 

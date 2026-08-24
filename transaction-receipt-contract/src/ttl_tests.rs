@@ -45,12 +45,12 @@ fn receipts_survive_a_two_year_lease() {
     let env = mainnet_env();
     let (client, operator) = setup(&env);
 
-    let mut tx_ids: [Option<BytesN<32>>; 24] = Default::default();
-    for month in 0..24usize {
+    let mut first: Option<BytesN<32>> = None;
+    for (month, reference) in MONTH_REFERENCES.iter().enumerate() {
         advance_ledgers(&env, MONTH);
         // Distinct references per month so each receipt gets its own tx_id.
-        let input = receipt_input(&env, month_reference(month));
-        tx_ids[month] = Some(client.record_receipt(&operator, &input));
+        let tx_id = client.record_receipt(&operator, &receipt_input(&env, reference));
+        first.get_or_insert(tx_id);
 
         // Reading the deal's receipts is what keeps them — and the deal index —
         // alive: every entry the read touches is extended.
@@ -59,7 +59,7 @@ fn receipts_survive_a_two_year_lease() {
     }
 
     // Two years on, the very first receipt is still there.
-    let first = tx_ids[0].clone().unwrap();
+    let first = first.unwrap();
     assert_eq!(client.get_receipt(&first).unwrap().amount_usdc, 150_0000000);
     assert_eq!(
         client
@@ -98,33 +98,30 @@ fn a_receipt_read_once_outlives_the_default_entry_lifetime() {
     assert!(client.get_receipt(&next).is_some());
 }
 
-/// Distinct external references, one per month.
-fn month_reference(month: usize) -> &'static str {
-    const REFERENCES: [&str; 24] = [
-        "rent-ttl-m00",
-        "rent-ttl-m01",
-        "rent-ttl-m02",
-        "rent-ttl-m03",
-        "rent-ttl-m04",
-        "rent-ttl-m05",
-        "rent-ttl-m06",
-        "rent-ttl-m07",
-        "rent-ttl-m08",
-        "rent-ttl-m09",
-        "rent-ttl-m10",
-        "rent-ttl-m11",
-        "rent-ttl-m12",
-        "rent-ttl-m13",
-        "rent-ttl-m14",
-        "rent-ttl-m15",
-        "rent-ttl-m16",
-        "rent-ttl-m17",
-        "rent-ttl-m18",
-        "rent-ttl-m19",
-        "rent-ttl-m20",
-        "rent-ttl-m21",
-        "rent-ttl-m22",
-        "rent-ttl-m23",
-    ];
-    REFERENCES[month]
-}
+/// Distinct external references, one per month of a 24-month lease.
+const MONTH_REFERENCES: [&str; 24] = [
+    "rent-ttl-m00",
+    "rent-ttl-m01",
+    "rent-ttl-m02",
+    "rent-ttl-m03",
+    "rent-ttl-m04",
+    "rent-ttl-m05",
+    "rent-ttl-m06",
+    "rent-ttl-m07",
+    "rent-ttl-m08",
+    "rent-ttl-m09",
+    "rent-ttl-m10",
+    "rent-ttl-m11",
+    "rent-ttl-m12",
+    "rent-ttl-m13",
+    "rent-ttl-m14",
+    "rent-ttl-m15",
+    "rent-ttl-m16",
+    "rent-ttl-m17",
+    "rent-ttl-m18",
+    "rent-ttl-m19",
+    "rent-ttl-m20",
+    "rent-ttl-m21",
+    "rent-ttl-m22",
+    "rent-ttl-m23",
+];

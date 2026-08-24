@@ -4,6 +4,7 @@ use soroban_pausable_core::{Pausable, PausableError};
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, vec, Address, BytesN, Env, Symbol, Vec,
 };
+use soroban_storage_ttl::TtlStorage;
 
 /// Deal ID type - using u64 for simplicity
 pub type DealId = u64;
@@ -102,44 +103,32 @@ fn require_not_paused(env: &Env) -> Result<(), ContractError> {
 }
 
 fn get_receipts(env: &Env, deal_id: DealId) -> Vec<Receipt> {
-    env.storage()
-        .persistent()
-        .get::<_, Vec<Receipt>>(&DataKey::Receipts(deal_id))
+    env.get_persistent::<_, Vec<Receipt>>(&DataKey::Receipts(deal_id))
         .unwrap_or_else(|| vec![env])
 }
 
 fn put_receipts(env: &Env, deal_id: DealId, receipts: Vec<Receipt>) {
-    env.storage()
-        .persistent()
-        .set(&DataKey::Receipts(deal_id), &receipts);
+    env.set_persistent(&DataKey::Receipts(deal_id), &receipts);
 }
 
 fn get_receipt_count(env: &Env, deal_id: DealId) -> ReceiptId {
-    env.storage()
-        .persistent()
-        .get::<_, ReceiptId>(&DataKey::ReceiptCount(deal_id))
+    env.get_persistent::<_, ReceiptId>(&DataKey::ReceiptCount(deal_id))
         .unwrap_or(0)
 }
 
 fn increment_receipt_count(env: &Env, deal_id: DealId) -> ReceiptId {
     let count = get_receipt_count(env, deal_id);
     let new_count = count + 1;
-    env.storage()
-        .persistent()
-        .set(&DataKey::ReceiptCount(deal_id), &new_count);
+    env.set_persistent(&DataKey::ReceiptCount(deal_id), &new_count);
     new_count
 }
 
 fn is_reference_used(env: &Env, deal_id: DealId, reference: &BytesN<32>) -> bool {
-    env.storage()
-        .persistent()
-        .has(&DataKey::UsedReference(deal_id, reference.clone()))
+    env.has_persistent(&DataKey::UsedReference(deal_id, reference.clone()))
 }
 
 fn mark_reference_used(env: &Env, deal_id: DealId, reference: &BytesN<32>) {
-    env.storage()
-        .persistent()
-        .set(&DataKey::UsedReference(deal_id, reference.clone()), &true);
+    env.set_persistent(&DataKey::UsedReference(deal_id, reference.clone()), &true);
 }
 
 fn get_tx_id(env: &Env) -> TxId {
@@ -152,15 +141,9 @@ fn get_tx_id(env: &Env) -> TxId {
     // Get a global counter from storage to ensure uniqueness across all receipts
     // Use a special deal_id (u64::MAX) as the key for the global counter
     let global_counter_key = DataKey::ReceiptCount(u64::MAX);
-    let counter: u64 = env
-        .storage()
-        .persistent()
-        .get(&global_counter_key)
-        .unwrap_or(0);
+    let counter: u64 = env.get_persistent(&global_counter_key).unwrap_or(0);
     let new_counter = counter.wrapping_add(1);
-    env.storage()
-        .persistent()
-        .set(&global_counter_key, &new_counter);
+    env.set_persistent(&global_counter_key, &new_counter);
 
     // Create a deterministic tx_id from timestamp and counter
     // In a real implementation, you'd get this from the actual transaction hash
@@ -191,6 +174,8 @@ fn get_tx_id(env: &Env) -> TxId {
 #[contractimpl]
 impl RentPayments {
     pub fn init(env: Env, admin: Address) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(ContractError::AlreadyInitialized);
         }
@@ -204,6 +189,8 @@ impl RentPayments {
     }
 
     pub fn contract_version(env: Env) -> u32 {
+        env.extend_instance_ttl();
+
         env.storage()
             .instance()
             .get::<_, u32>(&DataKey::ContractVersion)
@@ -211,6 +198,8 @@ impl RentPayments {
     }
 
     pub fn version(env: Env) -> u32 {
+        env.extend_instance_ttl();
+
         Self::contract_version(env)
     }
 
@@ -231,6 +220,8 @@ impl RentPayments {
         payer: Address,
         reference: BytesN<32>,
     ) -> Result<Receipt, ContractError> {
+        env.extend_instance_ttl();
+
         require_admin(&env)?;
         require_not_paused(&env)?;
 
@@ -299,6 +290,8 @@ impl RentPayments {
         limit: u32,
         cursor: Option<Cursor>,
     ) -> Result<ReceiptPage, ContractError> {
+        env.extend_instance_ttl();
+
         if limit == 0 || limit > 100 {
             return Err(ContractError::InvalidLimit);
         }
@@ -438,6 +431,8 @@ impl RentPayments {
 
     /// Get the total number of receipts for a deal
     pub fn receipt_count(env: Env, deal_id: DealId) -> u64 {
+        env.extend_instance_ttl();
+
         get_receipt_count(&env, deal_id)
     }
 }
@@ -476,6 +471,9 @@ impl Pausable for RentPayments {
         is_paused(&env)
     }
 }
+
+#[cfg(test)]
+mod ttl_tests;
 
 #[cfg(test)]
 mod tests;

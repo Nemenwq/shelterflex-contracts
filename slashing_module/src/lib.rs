@@ -4,6 +4,7 @@ use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, Address, Bytes, BytesN, Env, String,
     Symbol, Vec,
 };
+use soroban_storage_ttl::TtlStorage;
 
 /// Maximum reporter reward as a fraction of the slashed amount, in basis points.
 /// A reporter who surfaces a valid slash earns at most this percentage of the
@@ -191,6 +192,8 @@ impl SlashingModule {
     // ── Initialization ────────────────────────────────────────────────────────
 
     pub fn init(env: Env, admin: Address) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(ContractError::AlreadyInitialized);
         }
@@ -239,6 +242,8 @@ impl SlashingModule {
         invalid_block_bps: u32,
         max_slash_bps: u32,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         Self::require_admin(&env, &admin)?;
         env.storage()
             .instance()
@@ -302,6 +307,8 @@ impl SlashingModule {
         submitter: Address,
         enabled: bool,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         Self::require_not_paused(&env)?;
         Self::require_admin(&env, &admin)?;
         env.storage()
@@ -340,18 +347,18 @@ impl SlashingModule {
         actor: Address,
         balance: i128,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         Self::require_not_paused(&env)?;
         Self::require_admin(&env, &admin)?;
-        env.storage()
-            .persistent()
-            .set(&DataKey::StakedBalance(actor), &balance);
+        env.set_persistent(&DataKey::StakedBalance(actor), &balance);
         Ok(())
     }
 
     pub fn staked_balance(env: Env, actor: Address) -> i128 {
-        env.storage()
-            .persistent()
-            .get::<_, i128>(&DataKey::StakedBalance(actor))
+        env.extend_instance_ttl();
+
+        env.get_persistent::<_, i128>(&DataKey::StakedBalance(actor))
             .unwrap_or(0)
     }
 
@@ -363,6 +370,8 @@ impl SlashingModule {
         admin: Address,
         window_seconds: u64,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         Self::require_admin(&env, &admin)?;
         env.storage()
             .instance()
@@ -379,6 +388,8 @@ impl SlashingModule {
 
     /// Read the current challenge window duration.
     pub fn challenge_window(env: Env) -> u64 {
+        env.extend_instance_ttl();
+
         env.storage()
             .instance()
             .get(&DataKey::ChallengeWindow)
@@ -422,22 +433,18 @@ impl SlashingModule {
         actor: Address,
         offence: Offence,
     ) -> Result<u64, ContractError> {
+        env.extend_instance_ttl();
+
         Self::require_submitter(&env, &submitter)?;
 
         // Duplicate commitment check (same commitment = same evidence+salt pair)
-        if env
-            .storage()
-            .persistent()
-            .has(&DataKey::SlashRecord(commitment.clone()))
-        {
+        if env.has_persistent(&DataKey::SlashRecord(commitment.clone())) {
             return Err(ContractError::DuplicateEvidence);
         }
 
         // Actor must not already be jailed
         let already_jailed: bool = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Jailed(actor.clone()))
+            .get_persistent(&DataKey::Jailed(actor.clone()))
             .unwrap_or(false);
         if already_jailed {
             return Err(ContractError::AlreadyJailed);
@@ -453,9 +460,7 @@ impl SlashingModule {
 
         // Load current staked balance
         let balance: i128 = env
-            .storage()
-            .persistent()
-            .get::<_, i128>(&DataKey::StakedBalance(actor.clone()))
+            .get_persistent::<_, i128>(&DataKey::StakedBalance(actor.clone()))
             .unwrap_or(0);
 
         if balance == 0 {
@@ -486,9 +491,7 @@ impl SlashingModule {
             reason: None,
         };
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::PendingSlash(slash_id), &pending);
+        env.set_persistent(&DataKey::PendingSlash(slash_id), &pending);
 
         // Mark commitment as pending (duplicate guard); store minimal evidence record
         let evidence_record = SlashEvidence {
@@ -499,14 +502,10 @@ impl SlashingModule {
             penalty_bps,
             slashed_amount: 0, // updated at finalization
         };
-        env.storage()
-            .persistent()
-            .set(&DataKey::SlashRecord(commitment.clone()), &evidence_record);
+        env.set_persistent(&DataKey::SlashRecord(commitment.clone()), &evidence_record);
 
         // CommitmentRevealed starts false
-        env.storage()
-            .persistent()
-            .set(&DataKey::CommitmentRevealed(slash_id), &false);
+        env.set_persistent(&DataKey::CommitmentRevealed(slash_id), &false);
 
         // Emit evidence_committed event
         env.events().publish(
@@ -533,12 +532,12 @@ impl SlashingModule {
         evidence: Bytes,
         salt: Bytes,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         Self::require_submitter(&env, &submitter)?;
 
         let pending: PendingSlash = env
-            .storage()
-            .persistent()
-            .get(&DataKey::PendingSlash(slash_id))
+            .get_persistent(&DataKey::PendingSlash(slash_id))
             .ok_or(ContractError::SlashNotFound)?;
 
         if pending.status != SlashStatus::Pending {
@@ -547,9 +546,7 @@ impl SlashingModule {
 
         // Check we haven't already revealed
         let already_revealed: bool = env
-            .storage()
-            .persistent()
-            .get(&DataKey::CommitmentRevealed(slash_id))
+            .get_persistent(&DataKey::CommitmentRevealed(slash_id))
             .unwrap_or(false);
 
         // If already revealed, it's a no-op (idempotent)
@@ -566,9 +563,7 @@ impl SlashingModule {
         }
 
         // Mark as revealed
-        env.storage()
-            .persistent()
-            .set(&DataKey::CommitmentRevealed(slash_id), &true);
+        env.set_persistent(&DataKey::CommitmentRevealed(slash_id), &true);
 
         // Emit evidence_revealed event
         env.events().publish(
@@ -593,6 +588,8 @@ impl SlashingModule {
         actor: Address,
         penalty_bps: u32,
     ) -> Result<u64, ContractError> {
+        env.extend_instance_ttl();
+
         // Enforce authorization: caller must be Admin, authorized Submitter, or BondContract
         let admin: Address = env
             .storage()
@@ -625,9 +622,7 @@ impl SlashingModule {
 
         // Compute slash amount from the actor's staked balance
         let balance: i128 = env
-            .storage()
-            .persistent()
-            .get::<_, i128>(&DataKey::StakedBalance(actor.clone()))
+            .get_persistent::<_, i128>(&DataKey::StakedBalance(actor.clone()))
             .unwrap_or(0);
 
         if balance == 0 {
@@ -659,9 +654,7 @@ impl SlashingModule {
             reason: None,
         };
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::PendingSlash(slash_id), &pending);
+        env.set_persistent(&DataKey::PendingSlash(slash_id), &pending);
 
         env.events().publish(
             (
@@ -680,6 +673,8 @@ impl SlashingModule {
     /// For validator slashes (`is_validator = true`), the evidence commitment
     /// must have been validly revealed via `reveal_evidence` before this call.
     pub fn finalize_slash(env: Env, caller: Address, slash_id: u64) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         // Enforce authorization: caller must be Admin, authorized Submitter, or BondContract
         let admin: Address = env
             .storage()
@@ -708,9 +703,7 @@ impl SlashingModule {
         caller.require_auth();
 
         let mut pending: PendingSlash = env
-            .storage()
-            .persistent()
-            .get(&DataKey::PendingSlash(slash_id))
+            .get_persistent(&DataKey::PendingSlash(slash_id))
             .ok_or(ContractError::SlashNotFound)?;
 
         if pending.status != SlashStatus::Pending {
@@ -724,9 +717,7 @@ impl SlashingModule {
         // Validator slashes require a valid commit-reveal before finalization
         if pending.is_validator {
             let revealed: bool = env
-                .storage()
-                .persistent()
-                .get(&DataKey::CommitmentRevealed(slash_id))
+                .get_persistent(&DataKey::CommitmentRevealed(slash_id))
                 .unwrap_or(false);
             if !revealed {
                 return Err(ContractError::CommitmentNotRevealed);
@@ -734,9 +725,7 @@ impl SlashingModule {
         }
 
         pending.status = SlashStatus::Finalized;
-        env.storage()
-            .persistent()
-            .set(&DataKey::PendingSlash(slash_id), &pending);
+        env.set_persistent(&DataKey::PendingSlash(slash_id), &pending);
 
         if pending.is_validator {
             // Apply validator slashing logic
@@ -745,39 +734,29 @@ impl SlashingModule {
 
             // Load current staked balance
             let balance: i128 = env
-                .storage()
-                .persistent()
-                .get::<_, i128>(&DataKey::StakedBalance(actor.clone()))
+                .get_persistent::<_, i128>(&DataKey::StakedBalance(actor.clone()))
                 .unwrap_or(0);
 
             let actual_slash = slash_amount.min(balance);
             let new_balance = balance - actual_slash;
 
             // Apply balance reduction atomically
-            env.storage()
-                .persistent()
-                .set(&DataKey::StakedBalance(actor.clone()), &new_balance);
+            env.set_persistent(&DataKey::StakedBalance(actor.clone()), &new_balance);
 
             // Track cumulative slash amount per actor
             let prev_total: i128 = env
-                .storage()
-                .persistent()
-                .get(&DataKey::SlashedAmount(actor.clone()))
+                .get_persistent(&DataKey::SlashedAmount(actor.clone()))
                 .unwrap_or(0);
-            env.storage().persistent().set(
+            env.set_persistent(
                 &DataKey::SlashedAmount(actor.clone()),
                 &(prev_total + actual_slash),
             );
 
             // Increment slash count
             let prev_count: u32 = env
-                .storage()
-                .persistent()
-                .get(&DataKey::SlashCount(actor.clone()))
+                .get_persistent(&DataKey::SlashCount(actor.clone()))
                 .unwrap_or(0);
-            env.storage()
-                .persistent()
-                .set(&DataKey::SlashCount(actor.clone()), &(prev_count + 1));
+            env.set_persistent(&DataKey::SlashCount(actor.clone()), &(prev_count + 1));
 
             // Update slash record with finalized amount
             let evidence_record = SlashEvidence {
@@ -790,9 +769,7 @@ impl SlashingModule {
             };
 
             if let Some(hash) = pending.evidence_hash.clone() {
-                env.storage()
-                    .persistent()
-                    .set(&DataKey::SlashRecord(hash), &evidence_record);
+                env.set_persistent(&DataKey::SlashRecord(hash), &evidence_record);
             }
 
             // Emit slash event
@@ -806,9 +783,7 @@ impl SlashingModule {
             );
 
             // Jail the actor
-            env.storage()
-                .persistent()
-                .set(&DataKey::Jailed(actor.clone()), &true);
+            env.set_persistent(&DataKey::Jailed(actor.clone()), &true);
 
             env.events().publish(
                 (
@@ -824,21 +799,15 @@ impl SlashingModule {
             let slash_amount = pending.amount;
             if slash_amount > 0 {
                 let balance: i128 = env
-                    .storage()
-                    .persistent()
-                    .get::<_, i128>(&DataKey::StakedBalance(actor.clone()))
+                    .get_persistent::<_, i128>(&DataKey::StakedBalance(actor.clone()))
                     .unwrap_or(0);
                 let actual_slash = slash_amount.min(balance);
                 let new_balance = balance - actual_slash;
-                env.storage()
-                    .persistent()
-                    .set(&DataKey::StakedBalance(actor.clone()), &new_balance);
+                env.set_persistent(&DataKey::StakedBalance(actor.clone()), &new_balance);
                 let prev_total: i128 = env
-                    .storage()
-                    .persistent()
-                    .get(&DataKey::SlashedAmount(actor.clone()))
+                    .get_persistent(&DataKey::SlashedAmount(actor.clone()))
                     .unwrap_or(0);
-                env.storage().persistent().set(
+                env.set_persistent(
                     &DataKey::SlashedAmount(actor.clone()),
                     &(prev_total + actual_slash),
                 );
@@ -861,12 +830,12 @@ impl SlashingModule {
     /// Cancel a pending slash during the challenge window.
     /// Only callable by the admin (arbiter).
     pub fn cancel_slash(env: Env, admin: Address, slash_id: u64) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         Self::require_admin(&env, &admin)?;
 
         let mut pending: PendingSlash = env
-            .storage()
-            .persistent()
-            .get(&DataKey::PendingSlash(slash_id))
+            .get_persistent(&DataKey::PendingSlash(slash_id))
             .ok_or(ContractError::SlashNotFound)?;
 
         if pending.status != SlashStatus::Pending {
@@ -874,9 +843,7 @@ impl SlashingModule {
         }
 
         pending.status = SlashStatus::Cancelled;
-        env.storage()
-            .persistent()
-            .set(&DataKey::PendingSlash(slash_id), &pending);
+        env.set_persistent(&DataKey::PendingSlash(slash_id), &pending);
 
         // If it was a validator slash, remove the duplicate evidence guard
         // so the same commitment can be re-submitted after cancellation.
@@ -907,31 +874,29 @@ impl SlashingModule {
 
     /// Query the pending slash details.
     pub fn get_pending_slash(env: Env, slash_id: u64) -> Option<PendingSlash> {
-        env.storage()
-            .persistent()
-            .get(&DataKey::PendingSlash(slash_id))
+        env.extend_instance_ttl();
+
+        env.get_persistent(&DataKey::PendingSlash(slash_id))
     }
 
     // ── Jailing queries ───────────────────────────────────────────────────────
 
     pub fn is_jailed(env: Env, actor: Address) -> bool {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Jailed(actor))
-            .unwrap_or(false)
+        env.extend_instance_ttl();
+
+        env.get_persistent(&DataKey::Jailed(actor)).unwrap_or(false)
     }
 
     pub fn slash_count(env: Env, actor: Address) -> u32 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::SlashCount(actor))
-            .unwrap_or(0)
+        env.extend_instance_ttl();
+
+        env.get_persistent(&DataKey::SlashCount(actor)).unwrap_or(0)
     }
 
     pub fn total_slashed(env: Env, actor: Address) -> i128 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::SlashedAmount(actor))
+        env.extend_instance_ttl();
+
+        env.get_persistent(&DataKey::SlashedAmount(actor))
             .unwrap_or(0)
     }
 
@@ -939,12 +904,12 @@ impl SlashingModule {
 
     /// Admin pre-approves unjail for an actor (governance step).
     pub fn approve_unjail(env: Env, admin: Address, actor: Address) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         Self::require_not_paused(&env)?;
         Self::require_admin(&env, &admin)?;
         let jailed: bool = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Jailed(actor.clone()))
+            .get_persistent(&DataKey::Jailed(actor.clone()))
             .unwrap_or(false);
         if !jailed {
             return Err(ContractError::NotJailed);
@@ -964,13 +929,13 @@ impl SlashingModule {
 
     /// Actor claims their governance-approved unjail.
     pub fn unjail(env: Env, actor: Address) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         Self::require_not_paused(&env)?;
         actor.require_auth();
 
         let jailed: bool = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Jailed(actor.clone()))
+            .get_persistent(&DataKey::Jailed(actor.clone()))
             .unwrap_or(false);
         if !jailed {
             return Err(ContractError::NotJailed);
@@ -989,9 +954,7 @@ impl SlashingModule {
         env.storage()
             .instance()
             .remove(&DataKey::UnjailApproval(actor.clone()));
-        env.storage()
-            .persistent()
-            .set(&DataKey::Jailed(actor.clone()), &false);
+        env.set_persistent(&DataKey::Jailed(actor.clone()), &false);
 
         env.events().publish(
             (
@@ -1012,6 +975,8 @@ impl SlashingModule {
         admin: Address,
         bond_contract: Address,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         Self::require_not_paused(&env)?;
         Self::require_admin(&env, &admin)?;
         env.storage()
@@ -1029,6 +994,8 @@ impl SlashingModule {
 
     /// Currently-registered bond contract, if any.
     pub fn bond_contract(env: Env) -> Option<Address> {
+        env.extend_instance_ttl();
+
         env.storage().instance().get(&DataKey::BondContract)
     }
 
@@ -1041,6 +1008,8 @@ impl SlashingModule {
         inspection_id: String,
         reason: String,
     ) -> Result<i128, ContractError> {
+        env.extend_instance_ttl();
+
         Self::require_not_paused(&env)?;
         let registered: Address = env
             .storage()
@@ -1064,13 +1033,10 @@ impl SlashingModule {
         };
 
         let key = DataKey::InspectorSlashHistory(inspector.clone());
-        let mut history: Vec<InspectorSlashRecord> = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or_else(|| Vec::new(&env));
+        let mut history: Vec<InspectorSlashRecord> =
+            env.get_persistent(&key).unwrap_or_else(|| Vec::new(&env));
         history.push_back(record.clone());
-        env.storage().persistent().set(&key, &history);
+        env.set_persistent(&key, &history);
 
         env.events().publish(
             (
@@ -1086,14 +1052,16 @@ impl SlashingModule {
 
     /// Read the inspector's slash history (oldest first).
     pub fn get_slash_history(env: Env, inspector: Address) -> Vec<InspectorSlashRecord> {
-        env.storage()
-            .persistent()
-            .get(&DataKey::InspectorSlashHistory(inspector))
+        env.extend_instance_ttl();
+
+        env.get_persistent(&DataKey::InspectorSlashHistory(inspector))
             .unwrap_or_else(|| Vec::new(&env))
     }
 
     /// Pause the contract. Admin-only.
     pub fn pause(env: Env, admin: Address) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         Self::require_admin(&env, &admin)?;
         env.storage().instance().set(&DataKey::Paused, &true);
         env.events().publish(
@@ -1105,6 +1073,8 @@ impl SlashingModule {
 
     /// Unpause the contract. Admin-only.
     pub fn unpause(env: Env, admin: Address) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         Self::require_admin(&env, &admin)?;
         env.storage().instance().set(&DataKey::Paused, &false);
         env.events().publish(
@@ -1116,6 +1086,8 @@ impl SlashingModule {
 
     /// True iff the contract is currently paused.
     pub fn is_paused(env: Env) -> bool {
+        env.extend_instance_ttl();
+
         env.storage()
             .instance()
             .get::<_, bool>(&DataKey::Paused)

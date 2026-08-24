@@ -1,6 +1,7 @@
 #![no_std]
 
 use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, Symbol};
+use soroban_storage_ttl::TtlStorage;
 
 // ── Storage Keys ─────────────────────────────────────────────────────────────
 
@@ -98,18 +99,16 @@ impl EpochRewards {
 
     /// Initialize the contract and start epoch 1.
     pub fn init(env: Env, admin: Address, epoch_duration_secs: u64) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(ContractError::AlreadyInitialized);
         }
 
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::CurrentEpoch, &1u64);
-        env.storage()
-            .persistent()
-            .set(&DataKey::RewardIndex, &0i128);
-        env.storage()
-            .persistent()
-            .set(&DataKey::TotalStaked, &0i128);
+        env.set_persistent(&DataKey::RewardIndex, &0i128);
+        env.set_persistent(&DataKey::TotalStaked, &0i128);
 
         // Initialise epoch 1 and record its start reward index (0)
         let epoch1 = EpochInfo {
@@ -125,10 +124,8 @@ impl EpochRewards {
             dust: 0,
             total_claimable_at_seal: 0,
         };
-        env.storage().persistent().set(&DataKey::Epoch(1), &epoch1);
-        env.storage()
-            .persistent()
-            .set(&DataKey::EpochStartIndex(1), &0i128);
+        env.set_persistent(&DataKey::Epoch(1), &epoch1);
+        env.set_persistent(&DataKey::EpochStartIndex(1), &0i128);
 
         env.events().publish(
             (
@@ -156,24 +153,32 @@ impl EpochRewards {
     }
 
     pub fn set_operator(env: Env, admin: Address, operator: Address) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         Self::require_admin(&env, &admin)?;
         env.storage().instance().set(&DataKey::Operator, &operator);
         Ok(())
     }
 
     pub fn pause(env: Env, admin: Address) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         Self::require_admin(&env, &admin)?;
         env.storage().instance().set(&DataKey::Paused, &true);
         Ok(())
     }
 
     pub fn unpause(env: Env, admin: Address) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         Self::require_admin(&env, &admin)?;
         env.storage().instance().set(&DataKey::Paused, &false);
         Ok(())
     }
 
     pub fn is_paused(env: Env) -> bool {
+        env.extend_instance_ttl();
+
         env.storage()
             .instance()
             .get::<_, bool>(&DataKey::Paused)
@@ -215,6 +220,8 @@ impl EpochRewards {
     // ── Staking interface ─────────────────────────────────────────────────────
 
     pub fn stake(env: Env, user: Address, amount: i128) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         user.require_auth();
         if amount <= 0 {
             return Err(ContractError::InvalidAmount);
@@ -227,25 +234,17 @@ impl EpochRewards {
         let pending = Self::calc_pending(&stake, reward_index);
         if pending > 0 {
             let prev: i128 = env
-                .storage()
-                .persistent()
-                .get(&DataKey::UnclaimedRewards(user.clone()))
+                .get_persistent(&DataKey::UnclaimedRewards(user.clone()))
                 .unwrap_or(0);
-            env.storage()
-                .persistent()
-                .set(&DataKey::UnclaimedRewards(user.clone()), &(prev + pending));
+            env.set_persistent(&DataKey::UnclaimedRewards(user.clone()), &(prev + pending));
         }
 
         stake.amount += amount;
         stake.user_reward_index = reward_index;
-        env.storage()
-            .persistent()
-            .set(&DataKey::UserStake(user.clone()), &stake);
+        env.set_persistent(&DataKey::UserStake(user.clone()), &stake);
 
         let total = Self::get_total_staked(&env);
-        env.storage()
-            .persistent()
-            .set(&DataKey::TotalStaked, &(total + amount));
+        env.set_persistent(&DataKey::TotalStaked, &(total + amount));
 
         env.events().publish(
             (
@@ -259,6 +258,8 @@ impl EpochRewards {
     }
 
     pub fn unstake(env: Env, user: Address, amount: i128) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         user.require_auth();
         if amount <= 0 {
             return Err(ContractError::InvalidAmount);
@@ -275,25 +276,17 @@ impl EpochRewards {
         let pending = Self::calc_pending(&stake, reward_index);
         if pending > 0 {
             let prev: i128 = env
-                .storage()
-                .persistent()
-                .get(&DataKey::UnclaimedRewards(user.clone()))
+                .get_persistent(&DataKey::UnclaimedRewards(user.clone()))
                 .unwrap_or(0);
-            env.storage()
-                .persistent()
-                .set(&DataKey::UnclaimedRewards(user.clone()), &(prev + pending));
+            env.set_persistent(&DataKey::UnclaimedRewards(user.clone()), &(prev + pending));
         }
 
         stake.amount -= amount;
         stake.user_reward_index = reward_index;
-        env.storage()
-            .persistent()
-            .set(&DataKey::UserStake(user.clone()), &stake);
+        env.set_persistent(&DataKey::UserStake(user.clone()), &stake);
 
         let total = Self::get_total_staked(&env);
-        env.storage()
-            .persistent()
-            .set(&DataKey::TotalStaked, &(total - amount));
+        env.set_persistent(&DataKey::TotalStaked, &(total - amount));
 
         env.events().publish(
             (
@@ -318,6 +311,8 @@ impl EpochRewards {
         caller: Address,
         amount: i128,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         Self::require_not_paused(&env)?;
         Self::require_operator_or_admin(&env, &caller)?;
         if amount <= 0 {
@@ -342,9 +337,7 @@ impl EpochRewards {
         if total > 0 {
             let reward_index = Self::get_reward_index(&env);
             let new_index = reward_index + (amount * SCALE / total);
-            env.storage()
-                .persistent()
-                .set(&DataKey::RewardIndex, &new_index);
+            env.set_persistent(&DataKey::RewardIndex, &new_index);
         }
 
         // Track total rewards and accumulated dust for the current epoch
@@ -353,16 +346,11 @@ impl EpochRewards {
             .instance()
             .get(&DataKey::CurrentEpoch)
             .unwrap_or(1);
-        if let Some(mut epoch) = env
-            .storage()
-            .persistent()
-            .get::<_, EpochInfo>(&DataKey::Epoch(current_epoch))
+        if let Some(mut epoch) = env.get_persistent::<_, EpochInfo>(&DataKey::Epoch(current_epoch))
         {
             epoch.total_rewards += amount;
             epoch.dust += dust_this_funding;
-            env.storage()
-                .persistent()
-                .set(&DataKey::Epoch(current_epoch), &epoch);
+            env.set_persistent(&DataKey::Epoch(current_epoch), &epoch);
         }
 
         env.events().publish(
@@ -389,6 +377,8 @@ impl EpochRewards {
         target_epoch: u64,
         next_epoch_duration_secs: u64,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         Self::require_operator_or_admin(&env, &caller)?;
 
         let current_epoch: u64 = env
@@ -402,9 +392,7 @@ impl EpochRewards {
         }
 
         let mut epoch: EpochInfo = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Epoch(target_epoch))
+            .get_persistent(&DataKey::Epoch(target_epoch))
             .ok_or(ContractError::EpochNotFound)?;
 
         if epoch.sealed {
@@ -422,9 +410,7 @@ impl EpochRewards {
         // Read the reward index at the start of this epoch to compute
         // exactly how much was distributed to stakers during this epoch.
         let start_index: i128 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::EpochStartIndex(target_epoch))
+            .get_persistent(&DataKey::EpochStartIndex(target_epoch))
             .unwrap_or(0);
 
         let total_staked = Self::get_total_staked(&env);
@@ -454,9 +440,7 @@ impl EpochRewards {
         epoch.reward_index_at_seal = reward_index_at_seal;
         epoch.dust = dust;
         epoch.total_claimable_at_seal = total_claimable_at_seal;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Epoch(target_epoch), &epoch);
+        env.set_persistent(&DataKey::Epoch(target_epoch), &epoch);
 
         // Advance epoch counter and open next epoch
         let next_epoch = current_epoch + 1;
@@ -465,9 +449,7 @@ impl EpochRewards {
             .set(&DataKey::CurrentEpoch, &next_epoch);
 
         // Record next epoch's starting reward index for accurate dust tracking
-        env.storage()
-            .persistent()
-            .set(&DataKey::EpochStartIndex(next_epoch), &reward_index_at_seal);
+        env.set_persistent(&DataKey::EpochStartIndex(next_epoch), &reward_index_at_seal);
 
         let next_epoch_info = EpochInfo {
             epoch_number: next_epoch,
@@ -482,9 +464,7 @@ impl EpochRewards {
             dust: 0,
             total_claimable_at_seal: 0,
         };
-        env.storage()
-            .persistent()
-            .set(&DataKey::Epoch(next_epoch), &next_epoch_info);
+        env.set_persistent(&DataKey::Epoch(next_epoch), &next_epoch_info);
 
         // Emit epoch_sealed with funded + total_claimable for off-chain verification
         env.events().publish(
@@ -522,6 +502,8 @@ impl EpochRewards {
     /// Requires at least one epoch to have been sealed (current_epoch > 1).
     /// Idempotent: a second call in the same ledger returns 0.
     pub fn claim(env: Env, user: Address) -> Result<i128, ContractError> {
+        env.extend_instance_ttl();
+
         user.require_auth();
 
         // Guard: reject claims before any epoch has been sealed
@@ -539,21 +521,15 @@ impl EpochRewards {
 
         let live_pending = Self::calc_pending(&stake, reward_index);
         let banked: i128 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::UnclaimedRewards(user.clone()))
+            .get_persistent(&DataKey::UnclaimedRewards(user.clone()))
             .unwrap_or(0);
 
         let total_claimable = live_pending + banked;
 
         // Reset user index and clear banked rewards
         stake.user_reward_index = reward_index;
-        env.storage()
-            .persistent()
-            .set(&DataKey::UserStake(user.clone()), &stake);
-        env.storage()
-            .persistent()
-            .set(&DataKey::UnclaimedRewards(user.clone()), &0i128);
+        env.set_persistent(&DataKey::UserStake(user.clone()), &stake);
+        env.set_persistent(&DataKey::UnclaimedRewards(user.clone()), &0i128);
 
         env.events().publish(
             (
@@ -570,24 +546,26 @@ impl EpochRewards {
     // ── Queries ───────────────────────────────────────────────────────────────
 
     pub fn get_claimable(env: Env, user: Address) -> i128 {
+        env.extend_instance_ttl();
+
         let reward_index = Self::get_reward_index(&env);
         let stake = Self::get_user_stake(&env, &user);
         let live = Self::calc_pending(&stake, reward_index);
         let banked: i128 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::UnclaimedRewards(user))
+            .get_persistent(&DataKey::UnclaimedRewards(user))
             .unwrap_or(0);
         live + banked
     }
 
     pub fn get_epoch(env: Env, epoch_number: u64) -> Option<EpochInfo> {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Epoch(epoch_number))
+        env.extend_instance_ttl();
+
+        env.get_persistent(&DataKey::Epoch(epoch_number))
     }
 
     pub fn current_epoch(env: Env) -> u64 {
+        env.extend_instance_ttl();
+
         env.storage()
             .instance()
             .get(&DataKey::CurrentEpoch)
@@ -595,29 +573,23 @@ impl EpochRewards {
     }
 
     pub fn total_staked(env: Env) -> i128 {
+        env.extend_instance_ttl();
+
         Self::get_total_staked(&env)
     }
 
     // ── Internal helpers ──────────────────────────────────────────────────────
 
     fn get_reward_index(env: &Env) -> i128 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::RewardIndex)
-            .unwrap_or(0)
+        env.get_persistent(&DataKey::RewardIndex).unwrap_or(0)
     }
 
     fn get_total_staked(env: &Env) -> i128 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::TotalStaked)
-            .unwrap_or(0)
+        env.get_persistent(&DataKey::TotalStaked).unwrap_or(0)
     }
 
     fn get_user_stake(env: &Env, user: &Address) -> UserStake {
-        env.storage()
-            .persistent()
-            .get(&DataKey::UserStake(user.clone()))
+        env.get_persistent(&DataKey::UserStake(user.clone()))
             .unwrap_or(UserStake {
                 amount: 0,
                 user_reward_index: 0,

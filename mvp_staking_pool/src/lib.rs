@@ -5,6 +5,7 @@ use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, token::Client as TokenClient, Address,
     BytesN, Env, Symbol,
 };
+use soroban_storage_ttl::TtlStorage;
 
 const REWARD_INDEX_SCALE: i128 = 1_000_000_000_000;
 
@@ -116,16 +117,12 @@ fn require_positive_amount(amount: i128) {
 }
 
 fn get_staked_balance(env: &Env, user: &Address) -> i128 {
-    env.storage()
-        .persistent()
-        .get::<_, i128>(&DataKey::StakedBalance(user.clone()))
+    env.get_persistent::<_, i128>(&DataKey::StakedBalance(user.clone()))
         .unwrap_or(0)
 }
 
 fn get_used_stake(env: &Env, user: &Address) -> i128 {
-    env.storage()
-        .persistent()
-        .get::<_, i128>(&DataKey::UsedStake(user.clone()))
+    env.get_persistent::<_, i128>(&DataKey::UsedStake(user.clone()))
         .unwrap_or(0)
 }
 
@@ -135,9 +132,7 @@ fn put_used_stake(env: &Env, user: &Address, used: i128) {
             .persistent()
             .remove(&DataKey::UsedStake(user.clone()));
     } else {
-        env.storage()
-            .persistent()
-            .set(&DataKey::UsedStake(user.clone()), &used);
+        env.set_persistent(&DataKey::UsedStake(user.clone()), &used);
     }
 }
 
@@ -149,16 +144,12 @@ fn get_unused_stake(env: &Env, user: &Address) -> i128 {
 }
 
 fn get_user_reward_index(env: &Env, user: &Address) -> i128 {
-    env.storage()
-        .persistent()
-        .get::<_, i128>(&DataKey::UserRewardIndex(user.clone()))
+    env.get_persistent::<_, i128>(&DataKey::UserRewardIndex(user.clone()))
         .unwrap_or(0)
 }
 
 fn get_claimable_reward(env: &Env, user: &Address) -> i128 {
-    env.storage()
-        .persistent()
-        .get::<_, i128>(&DataKey::ClaimableReward(user.clone()))
+    env.get_persistent::<_, i128>(&DataKey::ClaimableReward(user.clone()))
         .unwrap_or(0)
 }
 
@@ -178,16 +169,14 @@ fn accrue_user_rewards(env: &Env, user: &Address) {
 
         if accrued > 0 {
             let current = get_claimable_reward(env, user);
-            env.storage().persistent().set(
+            env.set_persistent(
                 &DataKey::ClaimableReward(user.clone()),
                 &(current + accrued),
             );
         }
     }
 
-    env.storage()
-        .persistent()
-        .set(&DataKey::UserRewardIndex(user.clone()), &global_idx);
+    env.set_persistent(&DataKey::UserRewardIndex(user.clone()), &global_idx);
 }
 
 /// Acquire the contract-wide reentrancy lock before an external token call.
@@ -204,6 +193,8 @@ fn exit_nonreentrant(env: &Env) {
 #[contractimpl]
 impl StakingPool {
     pub fn init(env: Env, admin: Address, token: Address) {
+        env.extend_instance_ttl();
+
         if env.storage().instance().has(&DataKey::Admin) {
             panic!("already initialized");
         }
@@ -228,6 +219,8 @@ impl StakingPool {
     }
 
     pub fn contract_version(env: Env) -> u32 {
+        env.extend_instance_ttl();
+
         env.storage()
             .instance()
             .get::<_, u32>(&DataKey::ContractVersion)
@@ -235,6 +228,8 @@ impl StakingPool {
     }
 
     pub fn stake(env: Env, user: Address, amount: i128) {
+        env.extend_instance_ttl();
+
         // Acquire reentrancy guard first, before any checks or state mutations
         if enter_nonreentrant(&env).is_err() {
             panic!("reentrancy detected");
@@ -248,7 +243,7 @@ impl StakingPool {
 
         // Effects: write all state before the external transfer (checks-effects-interactions).
         let current_balance = get_staked_balance(&env, &user);
-        env.storage().persistent().set(
+        env.set_persistent(
             &DataKey::StakedBalance(user.clone()),
             &(current_balance + amount),
         );
@@ -267,6 +262,8 @@ impl StakingPool {
 
     /// Withdraws only from **unused** stake. Used stake (see `utilize_stake`) stays locked.
     pub fn unstake(env: Env, user: Address, amount: i128) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         // Acquire reentrancy guard first, before any checks or state mutations
         enter_nonreentrant(&env)?;
 
@@ -299,7 +296,7 @@ impl StakingPool {
         let token_client = TokenClient::new(&env, &token_address);
 
         // Update staked balance
-        env.storage().persistent().set(
+        env.set_persistent(
             &DataKey::StakedBalance(user.clone()),
             &(current_balance - amount),
         );
@@ -317,11 +314,15 @@ impl StakingPool {
 
     /// Capital consumed by company operations (locked until released by future flows if any).
     pub fn used_stake(env: Env, user: Address) -> i128 {
+        env.extend_instance_ttl();
+
         get_used_stake(&env, &user)
     }
 
     /// Stake that may still be withdrawn via `unstake` (total staked minus `used_stake`).
     pub fn unused_stake(env: Env, user: Address) -> i128 {
+        env.extend_instance_ttl();
+
         get_unused_stake(&env, &user)
     }
 
@@ -332,6 +333,8 @@ impl StakingPool {
         user: Address,
         amount: i128,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         admin.require_auth();
         if admin != get_admin(&env) {
             return Err(ContractError::NotAuthorized);
@@ -364,14 +367,20 @@ impl StakingPool {
 
     /// Total staked per user (used + unused). Unchanged from pre-partition semantics for reward accrual.
     pub fn staked_balance(env: Env, user: Address) -> i128 {
+        env.extend_instance_ttl();
+
         get_staked_balance(&env, &user)
     }
 
     pub fn total_staked(env: Env) -> i128 {
+        env.extend_instance_ttl();
+
         get_total_staked(&env)
     }
 
     pub fn fund_rewards(env: Env, from: Address, amount: i128) {
+        env.extend_instance_ttl();
+
         // Acquire reentrancy guard first, before any checks or state mutations
         if enter_nonreentrant(&env).is_err() {
             panic!("reentrancy detected");
@@ -407,11 +416,15 @@ impl StakingPool {
     }
 
     pub fn claimable(env: Env, user: Address) -> i128 {
+        env.extend_instance_ttl();
+
         accrue_user_rewards(&env, &user);
         get_claimable_reward(&env, &user)
     }
 
     pub fn claim(env: Env, to: Address) -> i128 {
+        env.extend_instance_ttl();
+
         // Acquire reentrancy guard first, before any checks or state mutations
         if enter_nonreentrant(&env).is_err() {
             panic!("reentrancy detected");
@@ -428,9 +441,7 @@ impl StakingPool {
             return 0;
         }
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::ClaimableReward(to.clone()), &0i128);
+        env.set_persistent(&DataKey::ClaimableReward(to.clone()), &0i128);
 
         let token_address = get_token(&env);
         let token_client = TokenClient::new(&env, &token_address);
@@ -445,6 +456,8 @@ impl StakingPool {
     // ── Upgrade governance (#392) ──────────────────────────────────────────────
 
     pub fn set_guardian(env: Env, admin: Address, guardian: Address) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         admin.require_auth();
         if admin != get_admin(&env) {
             return Err(ContractError::NotAuthorized);
@@ -461,6 +474,8 @@ impl StakingPool {
     }
 
     pub fn set_upgrade_delay(env: Env, admin: Address, delay: u64) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         admin.require_auth();
         if admin != get_admin(&env) {
             return Err(ContractError::NotAuthorized);
@@ -481,6 +496,8 @@ impl StakingPool {
         admin: Address,
         new_wasm_hash: BytesN<32>,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         admin.require_auth();
         if admin != get_admin(&env) {
             return Err(ContractError::NotAuthorized);
@@ -511,6 +528,8 @@ impl StakingPool {
     }
 
     pub fn execute_upgrade(env: Env, admin: Address) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         admin.require_auth();
         if admin != get_admin(&env) {
             return Err(ContractError::NotAuthorized);
@@ -548,6 +567,8 @@ impl StakingPool {
         admin: Address,
         new_wasm_hash: BytesN<32>,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         admin.require_auth();
         if admin != get_admin(&env) {
             return Err(ContractError::NotAuthorized);
@@ -575,6 +596,8 @@ impl StakingPool {
     }
 
     pub fn cancel_upgrade(env: Env, admin: Address) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         admin.require_auth();
         if admin != get_admin(&env) {
             return Err(ContractError::NotAuthorized);
@@ -631,6 +654,9 @@ impl Pausable for StakingPool {
         is_paused(&env)
     }
 }
+
+#[cfg(test)]
+mod ttl_tests;
 
 #[cfg(test)]
 mod migration_test_helpers;

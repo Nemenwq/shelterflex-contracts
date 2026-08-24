@@ -2,6 +2,7 @@
 
 use soroban_access_control_core::{require_admin_or_operator_permission, require_admin_permission};
 use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env};
+use soroban_storage_ttl::TtlStorage;
 
 #[cfg(kani)]
 pub mod formal_properties;
@@ -28,6 +29,8 @@ pub struct TestAccessControlContract;
 #[contractimpl]
 impl TestAccessControlContract {
     pub fn init(env: Env, admin: Address) {
+        env.extend_instance_ttl();
+
         if env.storage().instance().has(&DataKey::Admin) {
             panic!("already initialized");
         }
@@ -35,6 +38,8 @@ impl TestAccessControlContract {
     }
 
     pub fn set_operator(env: Env, caller: Address, operator: Address) -> Result<(), TestError> {
+        env.extend_instance_ttl();
+
         let admin = Self::get_admin(&env);
         require_admin_permission(
             &env,
@@ -48,6 +53,8 @@ impl TestAccessControlContract {
     }
 
     pub fn admin_only_operation(env: Env, caller: Address) -> Result<(), TestError> {
+        env.extend_instance_ttl();
+
         let admin = Self::get_admin(&env);
         require_admin_permission(
             &env,
@@ -60,6 +67,8 @@ impl TestAccessControlContract {
     }
 
     pub fn admin_or_operator_operation(env: Env, caller: Address) -> Result<(), TestError> {
+        env.extend_instance_ttl();
+
         let admin = Self::get_admin(&env);
         let operator = Self::get_operator(&env);
         require_admin_or_operator_permission(

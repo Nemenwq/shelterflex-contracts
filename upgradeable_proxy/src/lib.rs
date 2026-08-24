@@ -26,6 +26,7 @@ use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, BytesN, Env, Map, String, Symbol,
 };
 use soroban_sdk::Address;
+use soroban_storage_ttl::TtlStorage;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Storage keys
@@ -113,6 +114,8 @@ impl UpgradeableProxy {
         admin: Address,
         second_approver: Address,
     ) -> Result<(), ProxyError> {
+        env.extend_instance_ttl();
+
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(ProxyError::AlreadyInitialized);
         }
@@ -149,6 +152,8 @@ impl UpgradeableProxy {
         admin: Address,
         new_wasm_hash: BytesN<32>,
     ) -> Result<(), ProxyError> {
+        env.extend_instance_ttl();
+
         admin.require_auth();
 
         if admin != get_admin(&env) {
@@ -180,6 +185,8 @@ impl UpgradeableProxy {
         approver: Address,
         new_wasm_hash: BytesN<32>,
     ) -> Result<(), ProxyError> {
+        env.extend_instance_ttl();
+
         approver.require_auth();
 
         if approver != get_approver(&env) {
@@ -220,6 +227,8 @@ impl UpgradeableProxy {
 
     /// Cancel a pending upgrade proposal. Only the admin can cancel.
     pub fn cancel_upgrade(env: Env, admin: Address) -> Result<(), ProxyError> {
+        env.extend_instance_ttl();
+
         admin.require_auth();
 
         if admin != get_admin(&env) {
@@ -249,6 +258,8 @@ impl UpgradeableProxy {
         admin: Address,
         new_admin: Address,
     ) -> Result<(), ProxyError> {
+        env.extend_instance_ttl();
+
         admin.require_auth();
 
         if admin != get_admin(&env) {
@@ -272,26 +283,36 @@ impl UpgradeableProxy {
 
     /// Store a key/value pair. Used in tests to verify state survives upgrades.
     pub fn set_value(env: Env, key: String, value: String) {
+        env.extend_instance_ttl();
+
         let mut map = store_map(&env);
         map.set(key, value);
         env.storage().instance().set(&DataKey::Store, &map);
     }
 
     pub fn get_value(env: Env, key: String) -> Option<String> {
+        env.extend_instance_ttl();
+
         store_map(&env).get(key)
     }
 
     // ── Queries ───────────────────────────────────────────────────────────────
 
     pub fn version(env: Env) -> u32 {
+        env.extend_instance_ttl();
+
         get_version(&env)
     }
 
     pub fn admin(env: Env) -> Address {
+        env.extend_instance_ttl();
+
         get_admin(&env)
     }
 
     pub fn has_pending_upgrade(env: Env) -> bool {
+        env.extend_instance_ttl();
+
         env.storage().instance().has(&DataKey::PendingUpgrade)
     }
 }

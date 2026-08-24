@@ -1,6 +1,7 @@
 #![no_std]
 
 use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, Symbol, Vec};
+use soroban_storage_ttl::TtlStorage;
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -126,17 +127,13 @@ fn get_stake_for(env: &Env, voter: &Address) -> i128 {
         );
     }
 
-    env.storage()
-        .persistent()
-        .get::<_, i128>(&DataKey::StakeBalance(voter.clone()))
+    env.get_persistent::<_, i128>(&DataKey::StakeBalance(voter.clone()))
         .unwrap_or(0)
 }
 
 fn register_known_voter(env: &Env, voter: &Address) {
     let mut known_voters = env
-        .storage()
-        .persistent()
-        .get::<_, Vec<Address>>(&DataKey::KnownVoters)
+        .get_persistent::<_, Vec<Address>>(&DataKey::KnownVoters)
         .unwrap_or(Vec::new(env));
 
     let mut is_known = false;
@@ -149,37 +146,31 @@ fn register_known_voter(env: &Env, voter: &Address) {
 
     if !is_known {
         known_voters.push_back(voter.clone());
-        env.storage()
-            .persistent()
-            .set(&DataKey::KnownVoters, &known_voters);
+        env.set_persistent(&DataKey::KnownVoters, &known_voters);
     }
 }
 
 fn snapshot_known_voter_stakes_for_proposal(env: &Env, proposal_id: u64) {
     let known_voters = env
-        .storage()
-        .persistent()
-        .get::<_, Vec<Address>>(&DataKey::KnownVoters)
+        .get_persistent::<_, Vec<Address>>(&DataKey::KnownVoters)
         .unwrap_or(Vec::new(env));
 
     for voter in known_voters.iter() {
         let stake = get_stake_for(env, &voter);
-        env.storage()
-            .persistent()
-            .set(&DataKey::VoterSnapshot(proposal_id, voter.clone()), &stake);
+        env.set_persistent(&DataKey::VoterSnapshot(proposal_id, voter.clone()), &stake);
     }
 }
 
 fn get_snapshot_stake_for(env: &Env, proposal_id: u64, voter: &Address) -> i128 {
-    env.storage()
-        .persistent()
-        .get::<_, i128>(&DataKey::VoterSnapshot(proposal_id, voter.clone()))
+    env.get_persistent::<_, i128>(&DataKey::VoterSnapshot(proposal_id, voter.clone()))
         .unwrap_or(0)
 }
 
 #[contractimpl]
 impl Governance {
     pub fn init(env: Env, admin: Address, total_staked: i128) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(ContractError::AlreadyInitialized);
         }
@@ -193,6 +184,8 @@ impl Governance {
 
     /// Admin updates total staked (mirrors staking pool state for quorum).
     pub fn set_total_staked(env: Env, admin: Address, total: i128) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_admin(&env, &admin)?;
         env.storage().instance().set(&DataKey::TotalStaked, &total);
         Ok(())
@@ -203,6 +196,8 @@ impl Governance {
         admin: Address,
         staking_pool: Address,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_admin(&env, &admin)?;
         env.storage()
             .instance()
@@ -217,10 +212,10 @@ impl Governance {
         voter: Address,
         stake: i128,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_admin(&env, &admin)?;
-        env.storage()
-            .persistent()
-            .set(&DataKey::StakeBalance(voter.clone()), &stake);
+        env.set_persistent(&DataKey::StakeBalance(voter.clone()), &stake);
         register_known_voter(&env, &voter);
         Ok(())
     }
@@ -233,6 +228,8 @@ impl Governance {
         current_value: i128,
         proposed_value: i128,
     ) -> Result<u64, ContractError> {
+        env.extend_instance_ttl();
+
         proposer.require_auth();
 
         let stake = get_stake_for(&env, &proposer);
@@ -270,9 +267,7 @@ impl Governance {
             snapshotted_total_staked: snapshotted_total,
         };
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::Proposal(id), &proposal);
+        env.set_persistent(&DataKey::Proposal(id), &proposal);
         env.storage().instance().set(&DataKey::ProposalCount, &id);
 
         env.events().publish(
@@ -292,12 +287,12 @@ impl Governance {
         proposal_id: u64,
         support: bool,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         voter.require_auth();
 
         let mut proposal: Proposal = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Proposal(proposal_id))
+            .get_persistent(&DataKey::Proposal(proposal_id))
             .ok_or(ContractError::ProposalNotFound)?;
 
         if !matches!(proposal.status, ProposalStatus::Active) {
@@ -310,11 +305,7 @@ impl Governance {
         }
 
         // Prevent double voting
-        if env
-            .storage()
-            .persistent()
-            .has(&DataKey::Voted(proposal_id, voter.clone()))
-        {
+        if env.has_persistent(&DataKey::Voted(proposal_id, voter.clone())) {
             return Err(ContractError::AlreadyVoted);
         }
 
@@ -326,12 +317,8 @@ impl Governance {
             proposal.votes_against += weight;
         }
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::Proposal(proposal_id), &proposal);
-        env.storage()
-            .persistent()
-            .set(&DataKey::Voted(proposal_id, voter.clone()), &true);
+        env.set_persistent(&DataKey::Proposal(proposal_id), &proposal);
+        env.set_persistent(&DataKey::Voted(proposal_id, voter.clone()), &true);
 
         env.events().publish(
             (Symbol::new(&env, "governance"), Symbol::new(&env, "voted")),
@@ -342,10 +329,10 @@ impl Governance {
 
     /// Finalize proposal after voting period ends.
     pub fn finalize_proposal(env: Env, proposal_id: u64) -> Result<ProposalStatus, ContractError> {
+        env.extend_instance_ttl();
+
         let mut proposal: Proposal = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Proposal(proposal_id))
+            .get_persistent(&DataKey::Proposal(proposal_id))
             .ok_or(ContractError::ProposalNotFound)?;
 
         if !matches!(proposal.status, ProposalStatus::Active) {
@@ -369,9 +356,7 @@ impl Governance {
         };
 
         let status = proposal.status.clone();
-        env.storage()
-            .persistent()
-            .set(&DataKey::Proposal(proposal_id), &proposal);
+        env.set_persistent(&DataKey::Proposal(proposal_id), &proposal);
 
         env.events().publish(
             (
@@ -390,10 +375,10 @@ impl Governance {
 
     /// Execute a passed proposal after timelock.
     pub fn execute_proposal(env: Env, proposal_id: u64) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         let mut proposal: Proposal = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Proposal(proposal_id))
+            .get_persistent(&DataKey::Proposal(proposal_id))
             .ok_or(ContractError::ProposalNotFound)?;
 
         if matches!(proposal.status, ProposalStatus::Executed) {
@@ -410,9 +395,7 @@ impl Governance {
         }
 
         proposal.status = ProposalStatus::Executed;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Proposal(proposal_id), &proposal);
+        env.set_persistent(&DataKey::Proposal(proposal_id), &proposal);
 
         env.events().publish(
             (
@@ -430,12 +413,12 @@ impl Governance {
         proposer: Address,
         proposal_id: u64,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         proposer.require_auth();
 
         let mut proposal: Proposal = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Proposal(proposal_id))
+            .get_persistent(&DataKey::Proposal(proposal_id))
             .ok_or(ContractError::ProposalNotFound)?;
 
         if !matches!(proposal.status, ProposalStatus::Active) {
@@ -446,9 +429,7 @@ impl Governance {
         }
 
         proposal.status = ProposalStatus::Cancelled;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Proposal(proposal_id), &proposal);
+        env.set_persistent(&DataKey::Proposal(proposal_id), &proposal);
 
         env.events().publish(
             (
@@ -461,12 +442,14 @@ impl Governance {
     }
 
     pub fn get_proposal(env: Env, proposal_id: u64) -> Option<Proposal> {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Proposal(proposal_id))
+        env.extend_instance_ttl();
+
+        env.get_persistent(&DataKey::Proposal(proposal_id))
     }
 
     pub fn proposal_count(env: Env) -> u64 {
+        env.extend_instance_ttl();
+
         env.storage()
             .instance()
             .get(&DataKey::ProposalCount)

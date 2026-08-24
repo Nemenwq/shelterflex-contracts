@@ -4,6 +4,7 @@ use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error, Address, Env, Symbol,
     Vec,
 };
+use soroban_storage_ttl::TtlStorage;
 
 pub mod access_control;
 
@@ -162,6 +163,8 @@ impl OraclePriceFeeds {
         staleness_threshold: u64,
         max_deviation_bps: u64,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(ContractError::AlreadyInitialized);
         }
@@ -195,6 +198,8 @@ impl OraclePriceFeeds {
         pair: Symbol,
         source: Address,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         access_control::require_admin_permission(&env, &get_admin(&env), &caller, "add_source")?;
         let mut sources: Vec<Address> = env
             .storage()
@@ -225,6 +230,8 @@ impl OraclePriceFeeds {
         pair: Symbol,
         source: Address,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         access_control::require_admin_permission(&env, &get_admin(&env), &caller, "remove_source")?;
         let sources: Vec<Address> = env
             .storage()
@@ -259,6 +266,8 @@ impl OraclePriceFeeds {
         pair: Symbol,
         quorum: u32,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         access_control::require_admin_permission(&env, &get_admin(&env), &caller, "set_quorum")?;
         env.storage()
             .instance()
@@ -268,6 +277,8 @@ impl OraclePriceFeeds {
 
     /// Read registered sources for a feed.
     pub fn get_sources(env: Env, pair: Symbol) -> Vec<Address> {
+        env.extend_instance_ttl();
+
         env.storage()
             .instance()
             .get(&DataKey::Sources(pair))
@@ -288,6 +299,8 @@ impl OraclePriceFeeds {
         price: i128,
         sequence: u64,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         let sources: Vec<Address> = env
             .storage()
             .instance()
@@ -416,6 +429,8 @@ impl OraclePriceFeeds {
     /// submissions and fails with `NoQuorum` if fewer than the required quorum
     /// of sources have fresh data. Otherwise uses the single-source feed record.
     pub fn get_price(env: Env, pair: Symbol) -> PriceFeed {
+        env.extend_instance_ttl();
+
         let sources: Vec<Address> = env
             .storage()
             .instance()
@@ -484,6 +499,8 @@ impl OraclePriceFeeds {
     }
 
     pub fn get_price_unsafe(env: Env, pair: Symbol) -> PriceFeed {
+        env.extend_instance_ttl();
+
         env.storage()
             .instance()
             .get(&DataKey::Feed(pair))
@@ -491,6 +508,8 @@ impl OraclePriceFeeds {
     }
 
     pub fn is_stale(env: Env, pair: Symbol) -> bool {
+        env.extend_instance_ttl();
+
         let sources: Vec<Address> = env
             .storage()
             .instance()
@@ -535,6 +554,8 @@ impl OraclePriceFeeds {
         caller: Address,
         threshold: u64,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         access_control::require_admin_permission(
             &env,
             &get_admin(&env),
@@ -552,6 +573,8 @@ impl OraclePriceFeeds {
         caller: Address,
         max_deviation_bps: u64,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         access_control::require_admin_permission(
             &env,
             &get_admin(&env),
@@ -576,6 +599,8 @@ impl OraclePriceFeeds {
     /// Returns the latest spot price when only one observation is available
     /// (zero elapsed time — no manipulation possible yet).
     pub fn get_twap(env: Env, pair: Symbol) -> i128 {
+        env.extend_instance_ttl();
+
         let observations: Vec<PriceObservation> = env
             .storage()
             .instance()

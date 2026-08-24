@@ -4,6 +4,7 @@ use soroban_pausable_core::{Pausable, PausableError};
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, Address, BytesN, Env, Symbol,
 };
+use soroban_storage_ttl::TtlStorage;
 
 // ── Storage keys ─────────────────────────────────────────────────────────────
 pub mod access_control;
@@ -12,6 +13,9 @@ pub mod validation;
 
 #[cfg(kani)]
 mod formal_properties;
+
+#[cfg(test)]
+mod ttl_tests;
 
 #[cfg(test)]
 mod monthly_cap_tests;
@@ -124,16 +128,12 @@ fn get_admin(env: &Env) -> Address {
 
 /// Per-user balance from persistent storage (#386 gas optimisation)
 fn get_balance(env: &Env, user: &Address) -> i128 {
-    env.storage()
-        .persistent()
-        .get::<_, i128>(&DataKey::Balance(user.clone()))
+    env.get_persistent::<_, i128>(&DataKey::Balance(user.clone()))
         .unwrap_or(0)
 }
 
 fn put_balance(env: &Env, user: &Address, amount: i128) {
-    env.storage()
-        .persistent()
-        .set(&DataKey::Balance(user.clone()), &amount);
+    env.set_persistent(&DataKey::Balance(user.clone()), &amount);
 }
 
 fn get_paused_state(env: &Env) -> bool {
@@ -155,6 +155,8 @@ fn require_not_paused(env: &Env) -> Result<(), ContractError> {
 #[contractimpl]
 impl RentWallet {
     pub fn init(env: Env, admin: Address) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(ContractError::AlreadyInitialized);
         }
@@ -178,6 +180,8 @@ impl RentWallet {
     }
 
     pub fn contract_version(env: Env) -> u32 {
+        env.extend_instance_ttl();
+
         env.storage()
             .instance()
             .get::<_, u32>(&DataKey::ContractVersion)
@@ -186,10 +190,14 @@ impl RentWallet {
 
     /// Current state schema version stored on-chain.
     pub fn state_schema_version(env: Env) -> u32 {
+        env.extend_instance_ttl();
+
         get_state_schema_version(&env)
     }
 
     pub fn version(env: Env) -> u32 {
+        env.extend_instance_ttl();
+
         Self::contract_version(env)
     }
 
@@ -199,6 +207,8 @@ impl RentWallet {
         user: Address,
         amount: i128,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         let current_admin = get_admin(&env);
         access_control::require_admin_permission(&env, &current_admin, &admin, "credit")?;
         require_not_paused(&env)?;
@@ -228,6 +238,8 @@ impl RentWallet {
         user: Address,
         amount: i128,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         let current_admin = get_admin(&env);
         access_control::require_admin_permission(&env, &current_admin, &admin, "debit")?;
         require_not_paused(&env)?;
@@ -260,10 +272,14 @@ impl RentWallet {
     }
 
     pub fn balance(env: Env, user: Address) -> i128 {
+        env.extend_instance_ttl();
+
         get_balance(&env, &user)
     }
 
     pub fn set_admin(env: Env, admin: Address, new_admin: Address) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         let current_admin = get_admin(&env);
         access_control::require_admin_permission(&env, &current_admin, &admin, "set_admin")?;
 
@@ -326,6 +342,8 @@ impl RentWallet {
     // ── Upgrade governance (#392) ─────────────────────────────────────────────
 
     pub fn set_guardian(env: Env, admin: Address, guardian: Address) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         let current_admin = get_admin(&env);
         access_control::require_admin_permission(&env, &current_admin, &admin, "set_guardian")?;
         env.storage().instance().set(&DataKey::Guardian, &guardian);
@@ -344,6 +362,8 @@ impl RentWallet {
         admin: Address,
         delay_seconds: u64,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         let current_admin = get_admin(&env);
         access_control::require_admin_permission(
             &env,
@@ -372,6 +392,8 @@ impl RentWallet {
         new_wasm_hash: BytesN<32>,
         new_version: u32,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         let current_admin = get_admin(&env);
         access_control::require_admin_permission(&env, &current_admin, &admin, "propose_upgrade")?;
         if env.storage().instance().has(&DataKey::PendingUpgradeHash) {
@@ -408,6 +430,8 @@ impl RentWallet {
         admin: Address,
         new_wasm_hash: BytesN<32>,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         let current_admin = get_admin(&env);
         access_control::require_admin_permission(&env, &current_admin, &admin, "execute_upgrade")?;
         let pending: BytesN<32> = env
@@ -479,6 +503,8 @@ impl RentWallet {
         new_wasm_hash: BytesN<32>,
         new_version: u32,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         let current_admin = get_admin(&env);
         access_control::require_admin_permission(
             &env,
@@ -530,6 +556,8 @@ impl RentWallet {
     }
 
     pub fn cancel_upgrade(env: Env, admin: Address) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         let current_admin = get_admin(&env);
         access_control::require_admin_permission(&env, &current_admin, &admin, "cancel_upgrade")?;
         let hash: BytesN<32> = env
@@ -567,6 +595,8 @@ impl RentWallet {
         admin: Address,
         cap: i128,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         let current_admin = get_admin(&env);
         access_control::require_admin_permission(
             &env,
@@ -596,6 +626,8 @@ impl RentWallet {
         user: Address,
         cap: i128,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         let current_admin = get_admin(&env);
         access_control::require_admin_permission(
             &env,
@@ -610,9 +642,7 @@ impl RentWallet {
             return Err(ContractError::AmountTooLarge);
         }
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::MonthlyCapOverride(user.clone()), &cap);
+        env.set_persistent(&DataKey::MonthlyCapOverride(user.clone()), &cap);
         monthly_cap::emit_monthly_cap_set(&env, Some(user), cap);
         Ok(())
     }
@@ -620,11 +650,15 @@ impl RentWallet {
     /// The monthly cap currently in effect for `user` (their override if
     /// set, otherwise the global default). `0` means no cap.
     pub fn get_monthly_cap(env: Env, user: Address) -> i128 {
+        env.extend_instance_ttl();
+
         monthly_cap::effective_cap(&env, &user)
     }
 
     /// Amount `user` has debited during the current monthly period.
     pub fn get_monthly_spent(env: Env, user: Address) -> i128 {
+        env.extend_instance_ttl();
+
         monthly_cap::get_monthly_spent(&env, &user)
     }
 }

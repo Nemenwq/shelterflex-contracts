@@ -2,6 +2,7 @@
 
 use soroban_pausable_core::{Pausable, PausableError};
 use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Symbol};
+use soroban_storage_ttl::TtlStorage;
 
 // ── Test Harness Contract ─────────────────────────────────────────────────────
 
@@ -18,6 +19,8 @@ pub struct TestPausableContract;
 #[contractimpl]
 impl TestPausableContract {
     pub fn init(env: Env, admin: Address) {
+        env.extend_instance_ttl();
+
         if env.storage().instance().has(&DataKey::Admin) {
             panic!("already initialized");
         }
@@ -26,6 +29,8 @@ impl TestPausableContract {
     }
 
     pub fn guarded_operation(env: Env) -> Result<(), PausableError> {
+        env.extend_instance_ttl();
+
         if Self::is_paused(env.clone()) {
             return Err(PausableError::Paused);
         }

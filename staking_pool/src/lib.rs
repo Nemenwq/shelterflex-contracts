@@ -1,6 +1,9 @@
 #![no_std]
 
 #[cfg(test)]
+mod ttl_tests;
+
+#[cfg(test)]
 mod stress_tests;
 
 use soroban_pausable_core::{Pausable, PausableError};
@@ -8,6 +11,7 @@ use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, token, Address, Bytes, BytesN, Env, Map,
     String, Symbol,
 };
+use soroban_storage_ttl::TtlStorage;
 // Map is still used in ReceiptInput.metadata
 
 pub mod access_control;
@@ -163,16 +167,12 @@ fn is_operator(env: &Env, addr: &Address) -> bool {
 
 /// Per-user staked balance from persistent storage (#386)
 fn get_staked_balance(env: &Env, user: &Address) -> i128 {
-    env.storage()
-        .persistent()
-        .get::<_, i128>(&DataKey::StakedBalance(user.clone()))
+    env.get_persistent::<_, i128>(&DataKey::StakedBalance(user.clone()))
         .unwrap_or(0)
 }
 
 fn put_staked_balance(env: &Env, user: &Address, balance: i128) {
-    env.storage()
-        .persistent()
-        .set(&DataKey::StakedBalance(user.clone()), &balance);
+    env.set_persistent(&DataKey::StakedBalance(user.clone()), &balance);
 }
 
 fn get_total_staked(env: &Env) -> i128 {
@@ -198,28 +198,20 @@ fn put_lock_period(env: &Env, period: u64) {
 }
 
 fn get_deposit_count(env: &Env, user: &Address) -> u32 {
-    env.storage()
-        .persistent()
-        .get::<_, u32>(&DataKey::DepositCount(user.clone()))
+    env.get_persistent::<_, u32>(&DataKey::DepositCount(user.clone()))
         .unwrap_or(0)
 }
 
 fn put_deposit_count(env: &Env, user: &Address, count: u32) {
-    env.storage()
-        .persistent()
-        .set(&DataKey::DepositCount(user.clone()), &count);
+    env.set_persistent(&DataKey::DepositCount(user.clone()), &count);
 }
 
 fn get_deposit(env: &Env, user: &Address, index: u32) -> Option<Deposit> {
-    env.storage()
-        .persistent()
-        .get::<_, Deposit>(&DataKey::Deposit(user.clone(), index))
+    env.get_persistent::<_, Deposit>(&DataKey::Deposit(user.clone(), index))
 }
 
 fn put_deposit(env: &Env, user: &Address, index: u32, deposit: Deposit) {
-    env.storage()
-        .persistent()
-        .set(&DataKey::Deposit(user.clone(), index), &deposit);
+    env.set_persistent(&DataKey::Deposit(user.clone(), index), &deposit);
 }
 
 fn remove_deposit(env: &Env, user: &Address, index: u32) {
@@ -379,6 +371,8 @@ fn compute_canonical_hash(env: &Env, payload: &Bytes) -> BytesN<32> {
 #[contractimpl]
 impl StakingPool {
     pub fn init(env: Env, admin: Address, token: Address) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(ContractError::AlreadyInitialized);
         }
@@ -405,6 +399,8 @@ impl StakingPool {
     }
 
     pub fn contract_version(env: Env) -> u32 {
+        env.extend_instance_ttl();
+
         env.storage()
             .instance()
             .get::<_, u32>(&DataKey::ContractVersion)
@@ -413,10 +409,14 @@ impl StakingPool {
 
     /// Current state schema version stored on-chain.
     pub fn state_schema_version(env: Env) -> u32 {
+        env.extend_instance_ttl();
+
         get_state_schema_version(&env)
     }
 
     pub fn version(env: Env) -> u32 {
+        env.extend_instance_ttl();
+
         Self::contract_version(env)
     }
 
@@ -425,6 +425,8 @@ impl StakingPool {
         admin: Address,
         new_operator: Option<Address>,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         let current_admin = get_admin(&env);
         access_control::require_admin_permission(&env, &current_admin, &admin, "set_operator")?;
 
@@ -445,6 +447,8 @@ impl StakingPool {
     }
 
     pub fn set_admin(env: Env, admin: Address, new_admin: Address) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         let current_admin = get_admin(&env);
         access_control::require_admin_permission(&env, &current_admin, &admin, "set_admin")?;
 
@@ -461,10 +465,14 @@ impl StakingPool {
     }
 
     pub fn is_operator(env: Env, addr: Address) -> bool {
+        env.extend_instance_ttl();
+
         is_operator(&env, &addr)
     }
 
     pub fn stake(env: Env, from: Address, amount: i128) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_not_paused(&env)?;
         let _spender = require_user_or_operator(&env, &from, &from)?;
         validation::require_valid_amount(amount)?;
@@ -512,6 +520,8 @@ impl StakingPool {
     }
 
     pub fn unstake(env: Env, to: Address, amount: i128) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_not_paused(&env)?;
         let _spender = require_user_or_operator(&env, &to, &to)?;
         validation::require_valid_amount(amount)?;
@@ -593,14 +603,20 @@ impl StakingPool {
     }
 
     pub fn staked_balance(env: Env, user: Address) -> i128 {
+        env.extend_instance_ttl();
+
         get_staked_balance(&env, &user)
     }
 
     pub fn total_staked(env: Env) -> i128 {
+        env.extend_instance_ttl();
+
         get_total_staked(&env)
     }
 
     pub fn set_lock_period(env: Env, admin: Address, seconds: u64) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         let current_admin = get_admin(&env);
         access_control::require_admin_permission(&env, &current_admin, &admin, "set_lock_period")?;
         validation::require_valid_lock_period(seconds)?;
@@ -616,12 +632,16 @@ impl StakingPool {
     }
 
     pub fn get_lock_period(env: Env) -> u64 {
+        env.extend_instance_ttl();
+
         get_lock_period(&env)
     }
 
     // ── Upgrade governance (#392) ─────────────────────────────────────────────
 
     pub fn set_guardian(env: Env, admin: Address, guardian: Address) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         let current_admin = get_admin(&env);
         access_control::require_admin_permission(&env, &current_admin, &admin, "set_guardian")?;
         env.storage().instance().set(&DataKey::Guardian, &guardian);
@@ -640,6 +660,8 @@ impl StakingPool {
         admin: Address,
         delay_seconds: u64,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         let current_admin = get_admin(&env);
         access_control::require_admin_permission(
             &env,
@@ -666,6 +688,8 @@ impl StakingPool {
         new_wasm_hash: BytesN<32>,
         new_version: u32,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         let current_admin = get_admin(&env);
         access_control::require_admin_permission(&env, &current_admin, &admin, "propose_upgrade")?;
         if env.storage().instance().has(&DataKey::PendingUpgradeHash) {
@@ -698,6 +722,8 @@ impl StakingPool {
         admin: Address,
         new_wasm_hash: BytesN<32>,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         let current_admin = get_admin(&env);
         access_control::require_admin_permission(&env, &current_admin, &admin, "execute_upgrade")?;
         let pending: BytesN<32> = env
@@ -765,6 +791,8 @@ impl StakingPool {
         new_wasm_hash: BytesN<32>,
         new_version: u32,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         let current_admin = get_admin(&env);
         access_control::require_admin_permission(
             &env,
@@ -811,6 +839,8 @@ impl StakingPool {
     }
 
     pub fn cancel_upgrade(env: Env, admin: Address) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         let current_admin = get_admin(&env);
         access_control::require_admin_permission(&env, &current_admin, &admin, "cancel_upgrade")?;
         let hash: BytesN<32> = env
@@ -860,6 +890,8 @@ impl StakingPool {
         env: Env,
         input: ReceiptInput,
     ) -> Result<BytesN<32>, ContractError> {
+        env.extend_instance_ttl();
+
         crate::validation::require_valid_amount(input.amount_usdc)?;
 
         let payload = create_canonical_payload_v1(&env, &input);
@@ -879,6 +911,8 @@ impl StakingPool {
         input: ReceiptInput,
         expected_hash: BytesN<32>,
     ) -> Result<bool, ContractError> {
+        env.extend_instance_ttl();
+
         let computed_hash = Self::compute_metadata_hash(env, input)?;
         Ok(computed_hash == expected_hash)
     }

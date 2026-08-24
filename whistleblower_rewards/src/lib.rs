@@ -5,6 +5,7 @@ use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, token, Address, BytesN, Env, String,
     Symbol,
 };
+use soroban_storage_ttl::TtlStorage;
 
 // ── Storage Keys ──────────────────────────────────────────────────────────────
 
@@ -157,13 +158,11 @@ fn get_hold_window(env: &Env) -> u64 {
 }
 
 fn get_allocation_nonce(env: &Env, whistleblower: &Address, listing_id: &String) -> u64 {
-    env.storage()
-        .persistent()
-        .get::<_, u64>(&StorageKey::AllocationNonce(
-            whistleblower.clone(),
-            listing_id.clone(),
-        ))
-        .unwrap_or(0)
+    env.get_persistent::<_, u64>(&StorageKey::AllocationNonce(
+        whistleblower.clone(),
+        listing_id.clone(),
+    ))
+    .unwrap_or(0)
 }
 
 fn get_allocation(
@@ -172,7 +171,7 @@ fn get_allocation(
     listing_id: &String,
     id: u64,
 ) -> Option<AllocationRecord> {
-    env.storage().persistent().get(&StorageKey::Allocation(
+    env.get_persistent(&StorageKey::Allocation(
         whistleblower.clone(),
         listing_id.clone(),
         id,
@@ -186,7 +185,7 @@ fn put_allocation(
     id: u64,
     record: &AllocationRecord,
 ) {
-    env.storage().persistent().set(
+    env.set_persistent(
         &StorageKey::Allocation(whistleblower.clone(), listing_id.clone(), id),
         record,
     );
@@ -226,6 +225,8 @@ impl WhistleblowerRewards {
         token: Address,
         hold_window_secs: u64,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         if env.storage().instance().has(&StorageKey::Admin) {
             return Err(ContractError::AlreadyInitialized);
         }
@@ -253,6 +254,8 @@ impl WhistleblowerRewards {
     }
 
     pub fn contract_version(env: Env) -> u32 {
+        env.extend_instance_ttl();
+
         env.storage()
             .instance()
             .get::<_, u32>(&StorageKey::ContractVersion)
@@ -265,6 +268,8 @@ impl WhistleblowerRewards {
         admin: Address,
         window_secs: u64,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_admin(&env, &admin)?;
         env.storage()
             .instance()
@@ -280,6 +285,8 @@ impl WhistleblowerRewards {
     }
 
     pub fn get_hold_window(env: Env) -> u64 {
+        env.extend_instance_ttl();
+
         get_hold_window(&env)
     }
 
@@ -295,6 +302,8 @@ impl WhistleblowerRewards {
         deal_id: String,
         amount: i128,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_operator(&env, &operator)?;
         require_not_paused(&env)?;
         require_non_empty_string(&listing_id)?;
@@ -315,7 +324,7 @@ impl WhistleblowerRewards {
             status: AllocationStatus::Pending,
         };
         put_allocation(&env, &whistleblower, &listing_id, nonce, &record);
-        env.storage().persistent().set(
+        env.set_persistent(
             &StorageKey::AllocationNonce(whistleblower.clone(), listing_id.clone()),
             &(nonce + 1),
         );
@@ -347,6 +356,8 @@ impl WhistleblowerRewards {
         allocation_id: u64,
         reason: String,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         caller.require_auth();
         let op = get_operator(&env);
         let guardian_opt = env
@@ -409,6 +420,8 @@ impl WhistleblowerRewards {
         listing_id: String,
         amount: Option<i128>,
     ) -> Result<i128, ContractError> {
+        env.extend_instance_ttl();
+
         to.require_auth();
         require_not_paused(&env)?;
         require_non_empty_string(&listing_id)?;
@@ -478,6 +491,8 @@ impl WhistleblowerRewards {
     }
 
     pub fn claimable(env: Env, whistleblower: Address, listing_id: String) -> i128 {
+        env.extend_instance_ttl();
+
         if require_non_empty_string(&listing_id).is_err() {
             return 0;
         }
@@ -492,6 +507,8 @@ impl WhistleblowerRewards {
         admin: Address,
         new_operator: Address,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_admin(&env, &admin)?;
         let old_operator = get_operator(&env);
         env.storage()
@@ -542,6 +559,8 @@ impl Pausable for WhistleblowerRewards {
 #[contractimpl]
 impl WhistleblowerRewards {
     pub fn set_guardian(env: Env, admin: Address, guardian: Address) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_admin(&env, &admin)?;
         env.storage()
             .instance()
@@ -557,6 +576,8 @@ impl WhistleblowerRewards {
     }
 
     pub fn set_upgrade_delay(env: Env, admin: Address, delay: u64) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_admin(&env, &admin)?;
         env.storage()
             .instance()
@@ -576,6 +597,8 @@ impl WhistleblowerRewards {
         admin: Address,
         new_wasm_hash: BytesN<32>,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_admin(&env, &admin)?;
         if env
             .storage()
@@ -607,6 +630,8 @@ impl WhistleblowerRewards {
     }
 
     pub fn execute_upgrade(env: Env, admin: Address) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_admin(&env, &admin)?;
         let hash = env
             .storage()
@@ -643,6 +668,8 @@ impl WhistleblowerRewards {
         admin: Address,
         new_wasm_hash: BytesN<32>,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_admin(&env, &admin)?;
         if let Some(guardian) = env
             .storage()
@@ -669,6 +696,8 @@ impl WhistleblowerRewards {
     }
 
     pub fn cancel_upgrade(env: Env, admin: Address) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_admin(&env, &admin)?;
         if !env
             .storage()
@@ -695,6 +724,9 @@ impl WhistleblowerRewards {
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod ttl_tests;
 
 #[cfg(test)]
 mod test {

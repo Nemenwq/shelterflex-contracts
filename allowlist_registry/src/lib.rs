@@ -12,6 +12,7 @@
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, Address, Env, Map, String, Symbol, Vec,
 };
+use soroban_storage_ttl::TtlStorage;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -90,6 +91,8 @@ impl AllowlistRegistry {
 
     /// Initialise the registry with the governing admin address.
     pub fn initialize(env: Env, admin: Address) -> Result<(), Error> {
+        env.extend_instance_ttl();
+
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(Error::AlreadyInitialized);
         }
@@ -108,6 +111,8 @@ impl AllowlistRegistry {
         label: String,
         expires_at: u64,
     ) -> Result<(), Error> {
+        env.extend_instance_ttl();
+
         caller.require_auth();
         let adm = admin(&env)?;
         if caller != adm {
@@ -135,6 +140,8 @@ impl AllowlistRegistry {
 
     /// Remove an address from the allowlist.
     pub fn remove(env: Env, caller: Address, address: Address) -> Result<(), Error> {
+        env.extend_instance_ttl();
+
         caller.require_auth();
         let adm = admin(&env)?;
         if caller != adm {
@@ -160,6 +167,8 @@ impl AllowlistRegistry {
         caller: Address,
         entries: Vec<(Address, String, u64)>,
     ) -> Result<u32, Error> {
+        env.extend_instance_ttl();
+
         caller.require_auth();
         let adm = admin(&env)?;
         if caller != adm {
@@ -194,6 +203,8 @@ impl AllowlistRegistry {
     /// Returns true iff `address` is on the allowlist and has not expired.
     /// Safe to call from other contracts as a composable guard.
     pub fn is_member(env: Env, address: Address) -> bool {
+        env.extend_instance_ttl();
+
         let reg = registry(&env);
         match reg.get(address) {
             None => false,
@@ -203,6 +214,8 @@ impl AllowlistRegistry {
 
     /// Return the entry for `address`, or an error if absent or expired.
     pub fn get_entry(env: Env, address: Address) -> Result<Entry, Error> {
+        env.extend_instance_ttl();
+
         let reg = registry(&env);
         match reg.get(address) {
             None => Err(Error::EntryNotFound),
@@ -218,6 +231,8 @@ impl AllowlistRegistry {
 
     /// Return the total count of non-expired entries.
     pub fn member_count(env: Env) -> u32 {
+        env.extend_instance_ttl();
+
         let reg = registry(&env);
         let now = now_secs(&env);
         reg.iter()

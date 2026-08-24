@@ -4,6 +4,7 @@ use soroban_reentrancy_guard::Scoped;
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, Address, BytesN, Env, String, Symbol,
 };
+use soroban_storage_ttl::TtlStorage;
 
 // ── Storage Keys ──────────────────────────────────────────────────────────────
 
@@ -189,6 +190,8 @@ impl InspectorBondContract {
         slash_penalty_bps: i128,
         unstake_lock_days: u64,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(ContractError::AlreadyInitialized);
         }
@@ -207,6 +210,8 @@ impl InspectorBondContract {
 
     /// Inspector stakes a bond. Validates amount >= MIN_BOND_AMOUNT.
     pub fn stake_bond(env: Env, inspector: Address, amount: i128) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_not_paused(&env)?;
         inspector.require_auth();
         if amount <= 0 {
@@ -219,19 +224,14 @@ impl InspectorBondContract {
         let lock_secs = lock_days(&env) * 86_400;
         let locked_until = env.ledger().timestamp() + lock_secs;
 
-        let existing: Option<BondRecord> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Bond(inspector.clone()));
+        let existing: Option<BondRecord> = env.get_persistent(&DataKey::Bond(inspector.clone()));
         let bond = BondRecord {
             inspector: inspector.clone(),
             amount: existing.as_ref().map(|b| b.amount).unwrap_or(0) + amount,
             locked_until,
             slash_count: existing.as_ref().map(|b| b.slash_count).unwrap_or(0),
         };
-        env.storage()
-            .persistent()
-            .set(&DataKey::Bond(inspector.clone()), &bond);
+        env.set_persistent(&DataKey::Bond(inspector.clone()), &bond);
 
         env.events().publish(
             (
@@ -246,11 +246,11 @@ impl InspectorBondContract {
 
     /// Inspector withdraws bond if no active jobs and locked_until has passed.
     pub fn unstake_bond(env: Env, inspector: Address) -> Result<i128, ContractError> {
+        env.extend_instance_ttl();
+
         inspector.require_auth();
         let bond: BondRecord = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Bond(inspector.clone()))
+            .get_persistent(&DataKey::Bond(inspector.clone()))
             .ok_or(ContractError::NoBond)?;
 
         if bond.amount < min_bond(&env) {
@@ -288,12 +288,12 @@ impl InspectorBondContract {
         report_id: BytesN<32>,
         reason: Symbol,
     ) -> Result<i128, ContractError> {
+        env.extend_instance_ttl();
+
         require_admin(&env, &admin)?;
 
         let mut bond: BondRecord = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Bond(inspector.clone()))
+            .get_persistent(&DataKey::Bond(inspector.clone()))
             .ok_or(ContractError::NoBond)?;
 
         let penalty = bond.amount * slash_bps(&env) / 10_000;
@@ -305,9 +305,7 @@ impl InspectorBondContract {
 
         bond.amount = (bond.amount - slash_amount).max(0);
         bond.slash_count += 1;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Bond(inspector.clone()), &bond);
+        env.set_persistent(&DataKey::Bond(inspector.clone()), &bond);
 
         env.events().publish(
             (
@@ -321,37 +319,45 @@ impl InspectorBondContract {
     }
 
     pub fn get_bond(env: Env, inspector: Address) -> Option<BondRecord> {
-        env.storage().persistent().get(&DataKey::Bond(inspector))
+        env.extend_instance_ttl();
+
+        env.get_persistent(&DataKey::Bond(inspector))
     }
 
     pub fn is_bonded(env: Env, inspector: Address) -> bool {
-        match env
-            .storage()
-            .persistent()
-            .get::<_, BondRecord>(&DataKey::Bond(inspector))
-        {
+        env.extend_instance_ttl();
+
+        match env.get_persistent::<_, BondRecord>(&DataKey::Bond(inspector)) {
             Some(b) => b.amount >= min_bond(&env),
             None => false,
         }
     }
 
     pub fn pause(env: Env, admin: Address) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_admin(&env, &admin)?;
         env.storage().instance().set(&DataKey::Paused, &true);
         Ok(())
     }
 
     pub fn unpause(env: Env, admin: Address) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_admin(&env, &admin)?;
         env.storage().instance().set(&DataKey::Paused, &false);
         Ok(())
     }
 
     pub fn is_paused(env: Env) -> bool {
+        env.extend_instance_ttl();
+
         is_paused_internal(&env)
     }
 
     pub fn set_min_bond(env: Env, admin: Address, amount: i128) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_admin(&env, &admin)?;
         env.storage()
             .instance()
@@ -363,6 +369,8 @@ impl InspectorBondContract {
 
     /// Read the current challenge window (seconds). Default: 7 days.
     pub fn inspector_challenge_window(env: Env) -> u64 {
+        env.extend_instance_ttl();
+
         env.storage()
             .instance()
             .get(&DataKey::ChallengeWindow)
@@ -375,6 +383,8 @@ impl InspectorBondContract {
         admin: Address,
         window_secs: u64,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_admin(&env, &admin)?;
         env.storage()
             .instance()
@@ -417,12 +427,12 @@ impl InspectorBondContract {
         reason: String,
         severity: SlashSeverity,
     ) -> Result<u64, ContractError> {
+        env.extend_instance_ttl();
+
         require_admin(&env, &admin)?;
 
         let bond: BondRecord = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Bond(inspector.clone()))
+            .get_persistent(&DataKey::Bond(inspector.clone()))
             .ok_or(ContractError::NoBond)?;
 
         let effective_bps = tier_penalty_bps(&env, severity);
@@ -443,9 +453,7 @@ impl InspectorBondContract {
             reason: reason.clone(),
         };
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::PendingInspectorSlash(slash_id), &pending);
+        env.set_persistent(&DataKey::PendingInspectorSlash(slash_id), &pending);
 
         env.events().publish(
             (
@@ -468,12 +476,12 @@ impl InspectorBondContract {
         admin: Address,
         slash_id: u64,
     ) -> Result<i128, ContractError> {
+        env.extend_instance_ttl();
+
         require_admin(&env, &admin)?;
 
         let mut pending: PendingInspectorSlash = env
-            .storage()
-            .persistent()
-            .get(&DataKey::PendingInspectorSlash(slash_id))
+            .get_persistent(&DataKey::PendingInspectorSlash(slash_id))
             .ok_or(ContractError::SlashNotFound)?;
 
         if pending.status != InspectorSlashStatus::Pending {
@@ -486,23 +494,17 @@ impl InspectorBondContract {
 
         // Apply bond reduction
         let mut bond: BondRecord = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Bond(pending.inspector.clone()))
+            .get_persistent(&DataKey::Bond(pending.inspector.clone()))
             .ok_or(ContractError::NoBond)?;
 
         let actual_slash = pending.penalty_amount.min(bond.amount);
         bond.amount = (bond.amount - actual_slash).max(0);
         bond.slash_count += 1;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Bond(pending.inspector.clone()), &bond);
+        env.set_persistent(&DataKey::Bond(pending.inspector.clone()), &bond);
 
         // Mark as finalized
         pending.status = InspectorSlashStatus::Finalized;
-        env.storage()
-            .persistent()
-            .set(&DataKey::PendingInspectorSlash(slash_id), &pending);
+        env.set_persistent(&DataKey::PendingInspectorSlash(slash_id), &pending);
 
         env.events().publish(
             (
@@ -537,12 +539,12 @@ impl InspectorBondContract {
         admin: Address,
         slash_id: u64,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_admin(&env, &admin)?;
 
         let mut pending: PendingInspectorSlash = env
-            .storage()
-            .persistent()
-            .get(&DataKey::PendingInspectorSlash(slash_id))
+            .get_persistent(&DataKey::PendingInspectorSlash(slash_id))
             .ok_or(ContractError::SlashNotFound)?;
 
         if pending.status != InspectorSlashStatus::Pending {
@@ -550,9 +552,7 @@ impl InspectorBondContract {
         }
 
         pending.status = InspectorSlashStatus::Cancelled;
-        env.storage()
-            .persistent()
-            .set(&DataKey::PendingInspectorSlash(slash_id), &pending);
+        env.set_persistent(&DataKey::PendingInspectorSlash(slash_id), &pending);
 
         env.events().publish(
             (
@@ -568,9 +568,9 @@ impl InspectorBondContract {
 
     /// Query a pending slash proposal by ID.
     pub fn get_pending_inspector_slash(env: Env, slash_id: u64) -> Option<PendingInspectorSlash> {
-        env.storage()
-            .persistent()
-            .get(&DataKey::PendingInspectorSlash(slash_id))
+        env.extend_instance_ttl();
+
+        env.get_persistent(&DataKey::PendingInspectorSlash(slash_id))
     }
 }
 

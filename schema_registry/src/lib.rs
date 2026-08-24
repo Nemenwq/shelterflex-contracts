@@ -20,6 +20,7 @@
 //! leaving the state unchanged.
 
 use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Map, String, Symbol, Vec};
+use soroban_storage_ttl::TtlStorage;
 
 // ── Storage keys ──────────────────────────────────────────────────────────────
 
@@ -113,7 +114,9 @@ impl SchemaRegistry {
     // ── Initialisation ────────────────────────────────────────────────────────
 
     pub fn initialize(env: Env, admin: Address) {
-        if env.storage().persistent().has(&DataKey::Admin) {
+        env.extend_instance_ttl();
+
+        if env.has_persistent(&DataKey::Admin) {
             panic!("already initialized");
         }
         let initial = SchemaVersion {
@@ -121,11 +124,9 @@ impl SchemaRegistry {
             minor: 0,
             patch: 0,
         };
-        env.storage()
-            .persistent()
-            .set(&DataKey::RegistrySchemaVersion, &initial);
-        env.storage().persistent().set(&DataKey::Admin, &admin);
-        env.storage().persistent().set(
+        env.set_persistent(&DataKey::RegistrySchemaVersion, &initial);
+        env.set_persistent(&DataKey::Admin, &admin);
+        env.set_persistent(
             &DataKey::CompatibilityMatrix,
             &Map::<(u32, u32), CompatibilityMeta>::new(&env),
         );
@@ -138,6 +139,8 @@ impl SchemaRegistry {
         caller: Address,
         meta: CompatibilityMeta,
     ) -> Result<(), RegistryError> {
+        env.extend_instance_ttl();
+
         caller.require_auth();
         Self::require_admin(&env, &caller)?;
 
@@ -150,14 +153,10 @@ impl SchemaRegistry {
             Self::version_id(&meta.target),
         );
         let mut matrix: Map<(u32, u32), CompatibilityMeta> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::CompatibilityMatrix)
+            .get_persistent(&DataKey::CompatibilityMatrix)
             .unwrap_or_else(|| Map::new(&env));
         matrix.set(key, meta);
-        env.storage()
-            .persistent()
-            .set(&DataKey::CompatibilityMatrix, &matrix);
+        env.set_persistent(&DataKey::CompatibilityMatrix, &matrix);
         Ok(())
     }
 
@@ -170,11 +169,11 @@ impl SchemaRegistry {
         source: SchemaVersion,
         target: SchemaVersion,
     ) -> Result<InvariantResult, RegistryError> {
+        env.extend_instance_ttl();
+
         let key = (Self::version_id(&source), Self::version_id(&target));
         let matrix: Map<(u32, u32), CompatibilityMeta> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::CompatibilityMatrix)
+            .get_persistent(&DataKey::CompatibilityMatrix)
             .unwrap_or_else(|| Map::new(&env));
 
         if !matrix.contains_key(key) {
@@ -195,6 +194,8 @@ impl SchemaRegistry {
         target: SchemaVersion,
         verification_hash: soroban_sdk::BytesN<32>,
     ) -> Result<MigrationReceipt, RegistryError> {
+        env.extend_instance_ttl();
+
         caller.require_auth();
 
         let src_id = Self::version_id(&source);
@@ -203,9 +204,7 @@ impl SchemaRegistry {
 
         // 1. Source-version guard: current registry version must match declared source.
         let current: SchemaVersion = env
-            .storage()
-            .persistent()
-            .get(&DataKey::RegistrySchemaVersion)
+            .get_persistent(&DataKey::RegistrySchemaVersion)
             .unwrap_or(SchemaVersion {
                 major: 1,
                 minor: 0,
@@ -221,9 +220,7 @@ impl SchemaRegistry {
 
         // 2. Lookup registered transition.
         let matrix: Map<(u32, u32), CompatibilityMeta> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::CompatibilityMatrix)
+            .get_persistent(&DataKey::CompatibilityMatrix)
             .unwrap_or_else(|| Map::new(&env));
 
         let meta = matrix
@@ -232,7 +229,7 @@ impl SchemaRegistry {
 
         // 3. Idempotency guard — replay protection.
         let receipt_key = DataKey::MigrationReceipt(src_id, tgt_id);
-        if env.storage().persistent().has(&receipt_key) {
+        if env.has_persistent(&receipt_key) {
             return Err(RegistryError::AlreadyExecuted);
         }
 
@@ -256,9 +253,7 @@ impl SchemaRegistry {
         let migration_id = Self::next_migration_id(&env);
 
         // 7. Advance registry schema version to target.
-        env.storage()
-            .persistent()
-            .set(&DataKey::RegistrySchemaVersion, &target);
+        env.set_persistent(&DataKey::RegistrySchemaVersion, &target);
 
         // 8. Persist receipt under both lookup keys.
         let receipt = MigrationReceipt {
@@ -269,10 +264,8 @@ impl SchemaRegistry {
             ledger: env.ledger().sequence(),
             verification_hash,
         };
-        env.storage().persistent().set(&receipt_key, &receipt);
-        env.storage()
-            .persistent()
-            .set(&DataKey::MigrationReceiptById(migration_id), &receipt);
+        env.set_persistent(&receipt_key, &receipt);
+        env.set_persistent(&DataKey::MigrationReceiptById(migration_id), &receipt);
 
         env.events().publish(
             (Symbol::new(&env, "migration_executed"),),
@@ -285,11 +278,11 @@ impl SchemaRegistry {
     // ── Queries ───────────────────────────────────────────────────────────────
 
     pub fn is_transition_supported(env: Env, source: SchemaVersion, target: SchemaVersion) -> bool {
+        env.extend_instance_ttl();
+
         let key = (Self::version_id(&source), Self::version_id(&target));
         let matrix: Map<(u32, u32), CompatibilityMeta> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::CompatibilityMatrix)
+            .get_persistent(&DataKey::CompatibilityMatrix)
             .unwrap_or_else(|| Map::new(&env));
         matrix.contains_key(key)
     }
@@ -299,17 +292,19 @@ impl SchemaRegistry {
         source: SchemaVersion,
         target: SchemaVersion,
     ) -> Option<MigrationReceipt> {
+        env.extend_instance_ttl();
+
         let key = DataKey::MigrationReceipt(Self::version_id(&source), Self::version_id(&target));
-        env.storage().persistent().get(&key)
+        env.get_persistent(&key)
     }
 
     /// Returns true iff the given migration_id exists and its target version
     /// matches expected_to — confirming the registry reached the intended state.
     pub fn verify_migration(env: Env, migration_id: u32, expected_to: SchemaVersion) -> bool {
-        let receipt: Option<MigrationReceipt> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::MigrationReceiptById(migration_id));
+        env.extend_instance_ttl();
+
+        let receipt: Option<MigrationReceipt> =
+            env.get_persistent(&DataKey::MigrationReceiptById(migration_id));
         match receipt {
             Some(r) => r.target == expected_to,
             None => false,
@@ -317,9 +312,9 @@ impl SchemaRegistry {
     }
 
     pub fn registry_version(env: Env) -> SchemaVersion {
-        env.storage()
-            .persistent()
-            .get(&DataKey::RegistrySchemaVersion)
+        env.extend_instance_ttl();
+
+        env.get_persistent(&DataKey::RegistrySchemaVersion)
             .unwrap_or(SchemaVersion {
                 major: 1,
                 minor: 0,
@@ -350,9 +345,7 @@ impl SchemaRegistry {
 
     fn require_admin(env: &Env, caller: &Address) -> Result<(), RegistryError> {
         let admin: Address = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Admin)
+            .get_persistent(&DataKey::Admin)
             .ok_or(RegistryError::Unauthorized)?;
         if &admin != caller {
             return Err(RegistryError::Unauthorized);

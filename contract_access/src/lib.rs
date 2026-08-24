@@ -32,6 +32,7 @@
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, Address, Env, Map, Symbol, Vec,
 };
+use soroban_storage_ttl::TtlStorage;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -264,6 +265,8 @@ impl AccessControl {
     /// Initialise the access-control contract with `admin` as the first
     /// Admin-role holder and `second_approver` as the multi-sig co-signer.
     pub fn init(env: Env, admin: Address, second_approver: Address) -> Result<(), AccessError> {
+        env.extend_instance_ttl();
+
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(AccessError::AlreadyInitialized);
         }
@@ -293,6 +296,8 @@ impl AccessControl {
         subject: Address,
         role: Role,
     ) -> Result<(), AccessError> {
+        env.extend_instance_ttl();
+
         admin.require_auth();
         let current_admin = get_admin(&env);
         if admin != current_admin {
@@ -315,6 +320,8 @@ impl AccessControl {
         approver: Address,
         subject: Address,
     ) -> Result<(), AccessError> {
+        env.extend_instance_ttl();
+
         approver.require_auth();
 
         let second: Address = env
@@ -357,6 +364,8 @@ impl AccessControl {
         admin: Address,
         subject: Address,
     ) -> Result<(), AccessError> {
+        env.extend_instance_ttl();
+
         admin.require_auth();
         let current_admin = get_admin(&env);
         if admin != current_admin {
@@ -386,6 +395,8 @@ impl AccessControl {
         approver: Address,
         subject: Address,
     ) -> Result<(), AccessError> {
+        env.extend_instance_ttl();
+
         approver.require_auth();
 
         let second: Address = env
@@ -428,6 +439,8 @@ impl AccessControl {
         delegatee: Address,
         permission: Permission,
     ) -> Result<(), AccessError> {
+        env.extend_instance_ttl();
+
         delegator.require_auth();
         if !Self::has_permission(env.clone(), delegator.clone(), permission) {
             return Err(AccessError::Unauthorized);
@@ -461,6 +474,8 @@ impl AccessControl {
         caller: Address,
         delegatee: Address,
     ) -> Result<(), AccessError> {
+        env.extend_instance_ttl();
+
         caller.require_auth();
 
         let mut delegations: Map<Address, DelegationInfo> = env
@@ -503,6 +518,8 @@ impl AccessControl {
         caller: Address,
         permission: Permission,
     ) -> Result<(), AccessError> {
+        env.extend_instance_ttl();
+
         caller.require_auth();
 
         if Self::has_permission(env, caller, permission) {
@@ -516,11 +533,15 @@ impl AccessControl {
 
     /// Returns the `Role` assigned to `addr`, or `None`.
     pub fn get_role(env: Env, addr: Address) -> Option<Role> {
+        env.extend_instance_ttl();
+
         roles_map(&env).get(addr)
     }
 
     /// Returns `true` if `addr` has `permission` (via role or delegation).
     pub fn has_permission(env: Env, addr: Address, permission: Permission) -> bool {
+        env.extend_instance_ttl();
+
         if has_permission_internal(&env, &addr, permission) {
             return true;
         }
@@ -529,6 +550,8 @@ impl AccessControl {
 
     /// Returns the delegated permission for `addr`, if any.
     pub fn get_delegation(env: Env, addr: Address) -> Option<Permission> {
+        env.extend_instance_ttl();
+
         let delegations: Map<Address, DelegationInfo> = env
             .storage()
             .instance()
@@ -540,6 +563,8 @@ impl AccessControl {
 
     /// Returns all addresses with assigned roles as (Address, Role) pairs.
     pub fn list_roles(env: Env) -> Vec<(Address, Role)> {
+        env.extend_instance_ttl();
+
         let roles = roles_map(&env);
         let mut out = Vec::new(&env);
         for (addr, role) in roles.iter() {

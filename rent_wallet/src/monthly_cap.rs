@@ -18,6 +18,7 @@
 //! for spending-cap enforcement.
 
 use soroban_sdk::{Address, Env, Symbol};
+use soroban_storage_ttl::TtlStorage;
 
 const SECONDS_PER_MONTH: u64 = 2_592_000; // 30 × 24 × 60 × 60
 
@@ -39,9 +40,7 @@ pub fn get_monthly_cap_default(env: &Env) -> i128 {
 /// same storage tier as `Balance(Address)` (#386) to avoid growing instance
 /// storage unboundedly as more users receive overrides.
 pub fn get_monthly_cap_override(env: &Env, user: &Address) -> Option<i128> {
-    env.storage()
-        .persistent()
-        .get::<_, i128>(&crate::DataKey::MonthlyCapOverride(user.clone()))
+    env.get_persistent::<_, i128>(&crate::DataKey::MonthlyCapOverride(user.clone()))
 }
 
 /// The cap that actually applies to `user`: their override if one is set,
@@ -55,20 +54,16 @@ pub fn effective_cap(env: &Env, user: &Address) -> i128 {
 /// is ever active in — see module docs on pre-existing wallets).
 pub fn get_monthly_spent(env: &Env, user: &Address) -> i128 {
     let key = current_month_key(env);
-    env.storage()
-        .persistent()
-        .get::<_, i128>(&crate::DataKey::MonthlySpent(user.clone(), key))
+    env.get_persistent::<_, i128>(&crate::DataKey::MonthlySpent(user.clone(), key))
         .unwrap_or(0)
 }
 
 fn record_monthly_spent(env: &Env, user: &Address, additional: i128) {
     let key = current_month_key(env);
     let current = env
-        .storage()
-        .persistent()
-        .get::<_, i128>(&crate::DataKey::MonthlySpent(user.clone(), key))
+        .get_persistent::<_, i128>(&crate::DataKey::MonthlySpent(user.clone(), key))
         .unwrap_or(0);
-    env.storage().persistent().set(
+    env.set_persistent(
         &crate::DataKey::MonthlySpent(user.clone(), key),
         &(current + additional),
     );

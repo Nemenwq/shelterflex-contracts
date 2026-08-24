@@ -1,5 +1,6 @@
 #![no_std]
 use soroban_sdk::{contract, contractimpl, contracttype, Address, Bytes, Env, Symbol, Vec};
+use soroban_storage_ttl::TtlStorage;
 
 #[contracttype]
 pub struct Config {
@@ -52,6 +53,8 @@ pub struct MultisigAdmin;
 #[contractimpl]
 impl MultisigAdmin {
     pub fn init(env: Env, signers: Vec<Address>, threshold: u32) {
+        env.extend_instance_ttl();
+
         if env.storage().instance().has(&DataKey::Config) {
             panic!("AlreadyInitialized");
         }
@@ -82,6 +85,8 @@ impl MultisigAdmin {
         params: Bytes,
         expiry: u64,
     ) -> u64 {
+        env.extend_instance_ttl();
+
         proposer.require_auth();
         let cfg: Config = env
             .storage()
@@ -128,6 +133,8 @@ impl MultisigAdmin {
     }
 
     pub fn approve(env: Env, signer: Address, proposal_id: u64) {
+        env.extend_instance_ttl();
+
         signer.require_auth();
         let cfg: Config = env
             .storage()
@@ -195,6 +202,8 @@ impl MultisigAdmin {
     /// proposal cannot be executed until re-approved. The proposal must still
     /// be Pending and not expired.
     pub fn revoke_approval(env: Env, signer: Address, proposal_id: u64) {
+        env.extend_instance_ttl();
+
         signer.require_auth();
         let cfg: Config = env
             .storage()
@@ -252,6 +261,8 @@ impl MultisigAdmin {
     }
 
     pub fn execute(env: Env, executor: Address, proposal_id: u64) {
+        env.extend_instance_ttl();
+
         executor.require_auth();
         let cfg: Config = env
             .storage()
@@ -308,6 +319,8 @@ impl MultisigAdmin {
     }
 
     pub fn cancel(env: Env, caller: Address, proposal_id: u64) {
+        env.extend_instance_ttl();
+
         caller.require_auth();
         let cfg: Config = env
             .storage()
@@ -340,6 +353,8 @@ impl MultisigAdmin {
     }
 
     pub fn get_proposal(env: Env, proposal_id: u64) -> Proposal {
+        env.extend_instance_ttl();
+
         env.storage()
             .instance()
             .get(&DataKey::Proposal(proposal_id))
@@ -349,6 +364,8 @@ impl MultisigAdmin {
     /// List all proposal IDs, optionally filtered by status.
     /// Returns all IDs when status_filter is None.
     pub fn list_proposals(env: Env, status_filter: Option<ProposalStatus>) -> Vec<u64> {
+        env.extend_instance_ttl();
+
         let mut out: Vec<u64> = Vec::new(&env);
         let next: u64 = env
             .storage()

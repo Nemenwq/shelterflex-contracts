@@ -2,6 +2,7 @@
 
 use soroban_pausable_core::{Pausable, PausableError};
 use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, Symbol};
+use soroban_storage_ttl::TtlStorage;
 
 pub mod access_control;
 
@@ -148,6 +149,8 @@ fn emit_updated(env: &Env, tenant: &Address, record: &ReputationRecord, reason: 
 #[contractimpl]
 impl TenantReputation {
     pub fn init(env: Env, admin: Address, operator: Address) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(ContractError::AlreadyInitialized);
         }
@@ -174,6 +177,8 @@ impl TenantReputation {
         decay_rate_per_period: u32,
         period_secs: u64,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         access_control::require_admin_permission(
             &env,
             &get_admin(&env),
@@ -203,6 +208,8 @@ impl TenantReputation {
         score_min: u32,
         score_max: u32,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         access_control::require_admin_permission(
             &env,
             &get_admin(&env),
@@ -228,6 +235,8 @@ impl TenantReputation {
         record: ReputationRecord,
         reason: Symbol,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_not_paused(&env)?;
         access_control::require_admin_or_operator_permission(
             &env,
@@ -243,9 +252,7 @@ impl TenantReputation {
             last_updated: env.ledger().timestamp(),
             ..record
         };
-        env.storage()
-            .persistent()
-            .set(&DataKey::Reputation(tenant.clone()), &updated);
+        env.set_persistent(&DataKey::Reputation(tenant.clone()), &updated);
         emit_updated(&env, &tenant, &updated, &reason);
         Ok(())
     }
@@ -254,10 +261,9 @@ impl TenantReputation {
     /// Decay is computed from elapsed ledger time since `last_updated`; the stored
     /// record is not written — call `update_reputation` to persist the new score.
     pub fn get_reputation(env: Env, tenant: Address) -> Option<ReputationRecord> {
-        let record: ReputationRecord = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Reputation(tenant.clone()))?;
+        env.extend_instance_ttl();
+
+        let record: ReputationRecord = env.get_persistent(&DataKey::Reputation(tenant.clone()))?;
 
         let (decayed_score, did_decay) = compute_decayed_score(&env, &record);
         if did_decay {
@@ -279,7 +285,9 @@ impl TenantReputation {
     }
 
     pub fn has_reputation(env: Env, tenant: Address) -> bool {
-        env.storage().persistent().has(&DataKey::Reputation(tenant))
+        env.extend_instance_ttl();
+
+        env.has_persistent(&DataKey::Reputation(tenant))
     }
 
     pub fn revoke_reputation(
@@ -287,17 +295,15 @@ impl TenantReputation {
         caller: Address,
         tenant: Address,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         access_control::require_admin_permission(
             &env,
             &get_admin(&env),
             &caller,
             "revoke_reputation",
         )?;
-        if env
-            .storage()
-            .persistent()
-            .has(&DataKey::Reputation(tenant.clone()))
-        {
+        if env.has_persistent(&DataKey::Reputation(tenant.clone())) {
             env.storage()
                 .persistent()
                 .remove(&DataKey::Reputation(tenant.clone()));

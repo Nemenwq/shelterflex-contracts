@@ -8,6 +8,7 @@ use soroban_reentrancy_guard::Scoped;
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env,
 };
+use soroban_storage_ttl::TtlStorage;
 
 // ── Storage keys ─────────────────────────────────────────────────────────────
 
@@ -177,6 +178,8 @@ impl VestingScheduleContract {
     /// Initialize the contract with admin and token. Idempotent — a second
     /// call returns `AlreadyInitialized`.
     pub fn initialize(env: Env, admin: Address, token: Address) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(ContractError::AlreadyInitialized);
         }
@@ -203,6 +206,8 @@ impl VestingScheduleContract {
         cliff_time: u64,
         revocable: bool,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_admin(&env, &admin)?;
 
         if total_amount <= 0 {
@@ -249,6 +254,8 @@ impl VestingScheduleContract {
     /// Claim vested tokens for the beneficiary. Returns the amount actually
     /// claimed in this call. Honours pause, cliff, and revocation.
     pub fn claim(env: Env, beneficiary: Address) -> Result<i128, ContractError> {
+        env.extend_instance_ttl();
+
         require_not_paused(&env)?;
         beneficiary.require_auth();
 
@@ -286,6 +293,8 @@ impl VestingScheduleContract {
     /// Revoke a vesting schedule (only if revocable). Admin-only. Returns the
     /// amount that would be returned to the admin (total - already claimed).
     pub fn revoke(env: Env, admin: Address, beneficiary: Address) -> Result<i128, ContractError> {
+        env.extend_instance_ttl();
+
         require_admin(&env, &admin)?;
 
         let mut schedule =
@@ -318,11 +327,15 @@ impl VestingScheduleContract {
         env: Env,
         beneficiary: Address,
     ) -> Result<VestingSchedule, ContractError> {
+        env.extend_instance_ttl();
+
         get_vesting_schedule(&env, &beneficiary).ok_or(ContractError::ScheduleNotFound)
     }
 
     /// Get claimable amount for a beneficiary
     pub fn get_claimable_amount(env: Env, beneficiary: Address) -> Result<i128, ContractError> {
+        env.extend_instance_ttl();
+
         let schedule =
             get_vesting_schedule(&env, &beneficiary).ok_or(ContractError::ScheduleNotFound)?;
 
@@ -336,6 +349,8 @@ impl VestingScheduleContract {
 
     /// Update admin address
     pub fn set_admin(env: Env, admin: Address, new_admin: Address) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_admin(&env, &admin)?;
         env.storage().instance().set(&DataKey::Admin, &new_admin);
         Ok(())
@@ -343,6 +358,8 @@ impl VestingScheduleContract {
 
     /// Pause the contract
     pub fn pause(env: Env, admin: Address) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_admin(&env, &admin)?;
         env.storage().instance().set(&DataKey::Paused, &true);
         Ok(())
@@ -350,6 +367,8 @@ impl VestingScheduleContract {
 
     /// Unpause the contract
     pub fn unpause(env: Env, admin: Address) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_admin(&env, &admin)?;
         env.storage().instance().set(&DataKey::Paused, &false);
         Ok(())
@@ -357,6 +376,8 @@ impl VestingScheduleContract {
 
     /// True iff the contract is currently paused.
     pub fn is_paused(env: Env) -> bool {
+        env.extend_instance_ttl();
+
         env.storage()
             .instance()
             .get::<_, bool>(&DataKey::Paused)

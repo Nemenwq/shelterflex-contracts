@@ -3,6 +3,7 @@
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, Address, BytesN, Env, Symbol,
 };
+use soroban_storage_ttl::TtlStorage;
 
 // ── Storage Keys ──────────────────────────────────────────────────────────────
 
@@ -126,6 +127,8 @@ impl RentToOwn {
     /// `forfeiture_bps`: the portion of accrued equity forfeited to the platform on default,
     /// expressed in basis points (0 = full refund, 10000 = full forfeiture).
     pub fn init(env: Env, admin: Address, forfeiture_bps: u32) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(ContractError::AlreadyInitialized);
         }
@@ -149,15 +152,13 @@ impl RentToOwn {
         monthly_equity_usdc: i128,
         total_payments_required: u32,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_admin(&env, &admin)?;
         if property_value_usdc <= 0 || monthly_equity_usdc <= 0 {
             return Err(ContractError::InvalidAmount);
         }
-        if env
-            .storage()
-            .persistent()
-            .has(&DataKey::Deal(deal_id.clone()))
-        {
+        if env.has_persistent(&DataKey::Deal(deal_id.clone())) {
             return Err(ContractError::DealAlreadyExists);
         }
 
@@ -171,9 +172,7 @@ impl RentToOwn {
             total_payments_required,
             status: DealStatus::Active,
         };
-        env.storage()
-            .persistent()
-            .set(&DataKey::Deal(deal_id.clone()), &deal);
+        env.set_persistent(&DataKey::Deal(deal_id.clone()), &deal);
 
         env.events().publish(
             (
@@ -193,15 +192,15 @@ impl RentToOwn {
         rent_amount: i128,
         equity_amount: i128,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_admin(&env, &admin)?;
         if rent_amount <= 0 || equity_amount <= 0 {
             return Err(ContractError::InvalidAmount);
         }
 
         let mut deal: RentToOwnDeal = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Deal(deal_id.clone()))
+            .get_persistent(&DataKey::Deal(deal_id.clone()))
             .ok_or(ContractError::DealNotFound)?;
 
         if !matches!(deal.status, DealStatus::Active) {
@@ -217,9 +216,7 @@ impl RentToOwn {
         deal.payments_made += 1;
         let payment_number = deal.payments_made;
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::Deal(deal_id.clone()), &deal);
+        env.set_persistent(&DataKey::Deal(deal_id.clone()), &deal);
 
         let payment = EquityPayment {
             deal_id: deal_id.clone(),
@@ -228,9 +225,7 @@ impl RentToOwn {
             total_rent_amount: rent_amount,
             paid_at: env.ledger().timestamp(),
         };
-        env.storage()
-            .persistent()
-            .set(&DataKey::Payment(deal_id.clone(), payment_number), &payment);
+        env.set_persistent(&DataKey::Payment(deal_id.clone(), payment_number), &payment);
 
         env.events().publish(
             (
@@ -248,12 +243,12 @@ impl RentToOwn {
         admin: Address,
         deal_id: BytesN<32>,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_admin(&env, &admin)?;
 
         let mut deal: RentToOwnDeal = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Deal(deal_id.clone()))
+            .get_persistent(&DataKey::Deal(deal_id.clone()))
             .ok_or(ContractError::DealNotFound)?;
 
         if !matches!(deal.status, DealStatus::Active) {
@@ -264,9 +259,7 @@ impl RentToOwn {
         }
 
         deal.status = DealStatus::Completed;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Deal(deal_id.clone()), &deal);
+        env.set_persistent(&DataKey::Deal(deal_id.clone()), &deal);
 
         env.events().publish(
             (
@@ -287,12 +280,12 @@ impl RentToOwn {
         deal_id: BytesN<32>,
         reason: Symbol,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_admin(&env, &admin)?;
 
         let mut deal: RentToOwnDeal = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Deal(deal_id.clone()))
+            .get_persistent(&DataKey::Deal(deal_id.clone()))
             .ok_or(ContractError::DealNotFound)?;
 
         if !matches!(deal.status, DealStatus::Active) {
@@ -304,18 +297,14 @@ impl RentToOwn {
         let (refundable, forfeited) = equity_split(accumulated, forfeiture_bps);
 
         deal.status = DealStatus::Defaulted;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Deal(deal_id.clone()), &deal);
+        env.set_persistent(&DataKey::Deal(deal_id.clone()), &deal);
 
         let settlement = DefaultSettlementRecord {
             refundable_usdc: refundable,
             forfeited_usdc: forfeited,
             settled: false,
         };
-        env.storage()
-            .persistent()
-            .set(&DataKey::DefaultSettlement(deal_id.clone()), &settlement);
+        env.set_persistent(&DataKey::DefaultSettlement(deal_id.clone()), &settlement);
 
         env.events().publish(
             (
@@ -336,12 +325,12 @@ impl RentToOwn {
         admin: Address,
         deal_id: BytesN<32>,
     ) -> Result<DefaultSettlementRecord, ContractError> {
+        env.extend_instance_ttl();
+
         require_admin(&env, &admin)?;
 
         let deal: RentToOwnDeal = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Deal(deal_id.clone()))
+            .get_persistent(&DataKey::Deal(deal_id.clone()))
             .ok_or(ContractError::DealNotFound)?;
 
         if !matches!(deal.status, DealStatus::Defaulted) {
@@ -349,9 +338,7 @@ impl RentToOwn {
         }
 
         let mut settlement: DefaultSettlementRecord = env
-            .storage()
-            .persistent()
-            .get(&DataKey::DefaultSettlement(deal_id.clone()))
+            .get_persistent(&DataKey::DefaultSettlement(deal_id.clone()))
             .ok_or(ContractError::SettlementNotFound)?;
 
         if settlement.settled {
@@ -359,9 +346,7 @@ impl RentToOwn {
         }
 
         settlement.settled = true;
-        env.storage()
-            .persistent()
-            .set(&DataKey::DefaultSettlement(deal_id.clone()), &settlement);
+        env.set_persistent(&DataKey::DefaultSettlement(deal_id.clone()), &settlement);
 
         env.events().publish(
             (
@@ -389,13 +374,13 @@ impl RentToOwn {
         to: Address,
         deal_id: BytesN<32>,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_admin(&env, &admin)?;
         from.require_auth();
 
         let mut deal: RentToOwnDeal = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Deal(deal_id.clone()))
+            .get_persistent(&DataKey::Deal(deal_id.clone()))
             .ok_or(ContractError::DealNotFound)?;
 
         // Verify the caller is the current tenant
@@ -417,9 +402,7 @@ impl RentToOwn {
         let equity_before = deal.equity_accumulated_usdc;
         deal.tenant = to.clone();
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::Deal(deal_id.clone()), &deal);
+        env.set_persistent(&DataKey::Deal(deal_id.clone()), &deal);
 
         // Emit position_transferred event
         env.events().publish(
@@ -434,21 +417,25 @@ impl RentToOwn {
     }
 
     pub fn get_deal(env: Env, deal_id: BytesN<32>) -> Option<RentToOwnDeal> {
-        env.storage().persistent().get(&DataKey::Deal(deal_id))
+        env.extend_instance_ttl();
+
+        env.get_persistent(&DataKey::Deal(deal_id))
     }
 
     pub fn get_default_settlement(
         env: Env,
         deal_id: BytesN<32>,
     ) -> Option<DefaultSettlementRecord> {
-        env.storage()
-            .persistent()
-            .get(&DataKey::DefaultSettlement(deal_id))
+        env.extend_instance_ttl();
+
+        env.get_persistent(&DataKey::DefaultSettlement(deal_id))
     }
 
     /// Returns equity as basis points of property value (0–10000).
     pub fn get_equity_percentage(env: Env, deal_id: BytesN<32>) -> u32 {
-        let deal: RentToOwnDeal = match env.storage().persistent().get(&DataKey::Deal(deal_id)) {
+        env.extend_instance_ttl();
+
+        let deal: RentToOwnDeal = match env.get_persistent(&DataKey::Deal(deal_id)) {
             Some(d) => d,
             None => return 0,
         };
@@ -460,6 +447,9 @@ impl RentToOwn {
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod ttl_tests;
 
 #[cfg(test)]
 mod tests {

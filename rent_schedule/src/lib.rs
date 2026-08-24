@@ -3,6 +3,7 @@
 use soroban_sdk::{
     contract, contractimpl, contracttype, Address, BytesN, Env, String, Symbol, Vec,
 };
+use soroban_storage_ttl::TtlStorage;
 
 #[contracttype]
 #[derive(Clone)]
@@ -87,6 +88,8 @@ pub struct RentSchedule;
 #[contractimpl]
 impl RentSchedule {
     pub fn init(env: Env, admin: Address, operator: Address) {
+        env.extend_instance_ttl();
+
         if env.storage().instance().has(&DataKey::Config) {
             panic!("AlreadyInitialized");
         }
@@ -106,6 +109,8 @@ impl RentSchedule {
     }
 
     pub fn pause(env: Env, caller: Address) {
+        env.extend_instance_ttl();
+
         caller.require_auth();
         let cfg: Config = env
             .storage()
@@ -126,6 +131,8 @@ impl RentSchedule {
     }
 
     pub fn unpause(env: Env, caller: Address) {
+        env.extend_instance_ttl();
+
         caller.require_auth();
         let cfg: Config = env
             .storage()
@@ -146,6 +153,8 @@ impl RentSchedule {
     }
 
     pub fn is_paused(env: Env) -> bool {
+        env.extend_instance_ttl();
+
         is_paused(&env)
     }
 
@@ -155,6 +164,8 @@ impl RentSchedule {
         deal_id: String,
         instalments: Vec<ScheduledInstalment>,
     ) {
+        env.extend_instance_ttl();
+
         let cfg: Config = env
             .storage()
             .instance()
@@ -164,18 +175,12 @@ impl RentSchedule {
             panic!("NotAuthorized");
         }
         caller.require_auth();
-        if env
-            .storage()
-            .persistent()
-            .has(&DataKey::Schedule(deal_id.clone()))
-        {
+        if env.has_persistent(&DataKey::Schedule(deal_id.clone())) {
             panic!("ScheduleExists");
         }
         let total_amount: i128 = instalments.iter().map(|i| i.amount_due).sum();
         let count = instalments.len();
-        env.storage()
-            .persistent()
-            .set(&DataKey::Schedule(deal_id.clone()), &instalments);
+        env.set_persistent(&DataKey::Schedule(deal_id.clone()), &instalments);
         env.events().publish(
             (
                 Symbol::new(&env, "rent_schedule"),
@@ -195,6 +200,8 @@ impl RentSchedule {
         tx_id: BytesN<32>,
         paid_at: u64,
     ) {
+        env.extend_instance_ttl();
+
         require_not_paused(&env);
         let _cfg: Config = env
             .storage()
@@ -205,9 +212,7 @@ impl RentSchedule {
         assert_positive_payment(amount);
 
         let mut schedule: Vec<ScheduledInstalment> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Schedule(deal_id.clone()))
+            .get_persistent(&DataKey::Schedule(deal_id.clone()))
             .expect("NoSchedule");
         let idx = schedule
             .iter()
@@ -231,9 +236,7 @@ impl RentSchedule {
             inst.status = InstalmentStatus::Paid;
             inst.paid_at = Option::Some(paid_at);
             schedule.set(idx as u32, inst.clone());
-            env.storage()
-                .persistent()
-                .set(&DataKey::Schedule(deal_id.clone()), &schedule);
+            env.set_persistent(&DataKey::Schedule(deal_id.clone()), &schedule);
             env.events().publish(
                 (
                     Symbol::new(&env, "rent_schedule"),
@@ -244,9 +247,7 @@ impl RentSchedule {
             );
         } else {
             schedule.set(idx as u32, inst.clone());
-            env.storage()
-                .persistent()
-                .set(&DataKey::Schedule(deal_id.clone()), &schedule);
+            env.set_persistent(&DataKey::Schedule(deal_id.clone()), &schedule);
             env.events().publish(
                 (
                     Symbol::new(&env, "rent_schedule"),
@@ -265,6 +266,8 @@ impl RentSchedule {
     }
 
     pub fn mark_overdue(env: Env, caller: Address, deal_id: String, instalment_number: u32) {
+        env.extend_instance_ttl();
+
         require_not_paused(&env);
         let cfg: Config = env
             .storage()
@@ -276,9 +279,7 @@ impl RentSchedule {
         }
         caller.require_auth();
         let mut schedule: Vec<ScheduledInstalment> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Schedule(deal_id.clone()))
+            .get_persistent(&DataKey::Schedule(deal_id.clone()))
             .expect("NoSchedule");
         let idx = schedule
             .iter()
@@ -294,9 +295,7 @@ impl RentSchedule {
         inst.status = InstalmentStatus::Overdue;
         let remaining = instalment_remaining(&inst);
         schedule.set(idx as u32, inst);
-        env.storage()
-            .persistent()
-            .set(&DataKey::Schedule(deal_id.clone()), &schedule);
+        env.set_persistent(&DataKey::Schedule(deal_id.clone()), &schedule);
         env.events().publish(
             (
                 Symbol::new(&env, "rent_schedule"),
@@ -314,6 +313,8 @@ impl RentSchedule {
         instalment_number: u32,
         reason: WaiverReason,
     ) {
+        env.extend_instance_ttl();
+
         let cfg: Config = env
             .storage()
             .instance()
@@ -324,9 +325,7 @@ impl RentSchedule {
         }
         caller.require_auth();
         let mut schedule: Vec<ScheduledInstalment> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Schedule(deal_id.clone()))
+            .get_persistent(&DataKey::Schedule(deal_id.clone()))
             .expect("NoSchedule");
         let idx = schedule
             .iter()
@@ -344,9 +343,7 @@ impl RentSchedule {
         let waived_at = env.ledger().timestamp();
         inst.status = InstalmentStatus::Waived;
         schedule.set(idx as u32, inst);
-        env.storage()
-            .persistent()
-            .set(&DataKey::Schedule(deal_id.clone()), &schedule);
+        env.set_persistent(&DataKey::Schedule(deal_id.clone()), &schedule);
 
         let audit = WaiverAudit {
             actor: caller.clone(),
@@ -354,9 +351,7 @@ impl RentSchedule {
             amount_waived,
             waived_at,
         };
-        env.storage()
-            .persistent()
-            .set(&DataKey::Waiver(deal_id.clone(), instalment_number), &audit);
+        env.set_persistent(&DataKey::Waiver(deal_id.clone(), instalment_number), &audit);
 
         env.events().publish(
             (
@@ -375,22 +370,24 @@ impl RentSchedule {
     }
 
     pub fn get_waiver(env: Env, deal_id: String, instalment_number: u32) -> Option<WaiverAudit> {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Waiver(deal_id, instalment_number))
+        env.extend_instance_ttl();
+
+        env.get_persistent(&DataKey::Waiver(deal_id, instalment_number))
     }
 
     pub fn instalment_remaining(env: Env, deal_id: String, instalment_number: u32) -> i128 {
+        env.extend_instance_ttl();
+
         let inst = Self::get_instalment(env.clone(), deal_id, instalment_number);
         instalment_remaining(&inst)
     }
 
     /// Returns instalments sorted by instalment_number ascending.
     pub fn get_schedule(env: Env, deal_id: String) -> Vec<ScheduledInstalment> {
+        env.extend_instance_ttl();
+
         let mut schedule: Vec<ScheduledInstalment> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Schedule(deal_id))
+            .get_persistent(&DataKey::Schedule(deal_id))
             .unwrap_or(Vec::new(&env));
         let len = schedule.len();
         let mut i = 1u32;
@@ -417,10 +414,10 @@ impl RentSchedule {
         deal_id: String,
         instalment_number: u32,
     ) -> ScheduledInstalment {
+        env.extend_instance_ttl();
+
         let schedule: Vec<ScheduledInstalment> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Schedule(deal_id))
+            .get_persistent(&DataKey::Schedule(deal_id))
             .expect("NoSchedule");
         schedule
             .iter()

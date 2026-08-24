@@ -1,6 +1,7 @@
 #![no_std]
 
 use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, Symbol, Vec};
+use soroban_storage_ttl::TtlStorage;
 
 // ── Storage Keys ─────────────────────────────────────────────────────────────
 
@@ -94,6 +95,8 @@ impl StakeDelegation {
     // ── Init ──────────────────────────────────────────────────────────────────
 
     pub fn init(env: Env, admin: Address, epoch_duration_secs: u64) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(ContractError::AlreadyInitialized);
         }
@@ -105,12 +108,8 @@ impl StakeDelegation {
         env.storage()
             .instance()
             .set(&DataKey::UndelegationCooldown, &604800u64);
-        env.storage()
-            .persistent()
-            .set(&DataKey::RewardIndex, &0i128);
-        env.storage()
-            .persistent()
-            .set(&DataKey::TotalStaked, &0i128);
+        env.set_persistent(&DataKey::RewardIndex, &0i128);
+        env.set_persistent(&DataKey::TotalStaked, &0i128);
 
         env.events().publish(
             (Symbol::new(&env, "delegation"), Symbol::new(&env, "init")),
@@ -147,6 +146,8 @@ impl StakeDelegation {
     }
 
     pub fn advance_epoch(env: Env, admin: Address) -> Result<u64, ContractError> {
+        env.extend_instance_ttl();
+
         Self::require_not_paused(&env)?;
         Self::require_admin(&env, &admin)?;
         let current: u64 = env
@@ -178,6 +179,8 @@ impl StakeDelegation {
         admin: Address,
         cooldown_secs: u64,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         Self::require_not_paused(&env)?;
         Self::require_admin(&env, &admin)?;
         env.storage()
@@ -208,6 +211,8 @@ impl StakeDelegation {
         delegatee: Address,
         rate_bps: u32,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         Self::require_not_paused(&env)?;
         delegatee.require_auth();
         if rate_bps > 10_000 {
@@ -217,7 +222,7 @@ impl StakeDelegation {
         let reward_index = Self::get_reward_index(&env);
         Self::settle_pending_for(&env, &delegatee, reward_index);
 
-        env.storage().persistent().set(
+        env.set_persistent(
             &DataKey::DelegateeCommissionRate(delegatee.clone()),
             &rate_bps,
         );
@@ -234,6 +239,8 @@ impl StakeDelegation {
 
     /// Claim the accumulated commission balance for the calling delegatee.
     pub fn claim_commission(env: Env, delegatee: Address) -> Result<i128, ContractError> {
+        env.extend_instance_ttl();
+
         Self::require_not_paused(&env)?;
         delegatee.require_auth();
 
@@ -241,11 +248,9 @@ impl StakeDelegation {
         Self::settle_pending_for(&env, &delegatee, reward_index);
 
         let commission: i128 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::DelegateeCommissionBalance(delegatee.clone()))
+            .get_persistent(&DataKey::DelegateeCommissionBalance(delegatee.clone()))
             .unwrap_or(0);
-        env.storage().persistent().set(
+        env.set_persistent(
             &DataKey::DelegateeCommissionBalance(delegatee.clone()),
             &0i128,
         );
@@ -263,13 +268,13 @@ impl StakeDelegation {
 
     /// View the claimable commission balance (does not include unsettled live rewards).
     pub fn get_commission_claimable(env: Env, delegatee: Address) -> i128 {
+        env.extend_instance_ttl();
+
         let reward_index = Self::get_reward_index(&env);
         let delegatee_stake = Self::get_delegatee_stake(&env, &delegatee);
         let delegatee_index = Self::get_delegatee_index(&env, &delegatee);
         let commission_rate: u32 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::DelegateeCommissionRate(delegatee.clone()))
+            .get_persistent(&DataKey::DelegateeCommissionRate(delegatee.clone()))
             .unwrap_or(0);
 
         let mut live_commission = 0i128;
@@ -279,9 +284,7 @@ impl StakeDelegation {
         }
 
         let banked: i128 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::DelegateeCommissionBalance(delegatee))
+            .get_persistent(&DataKey::DelegateeCommissionBalance(delegatee))
             .unwrap_or(0);
         live_commission + banked
     }
@@ -294,6 +297,8 @@ impl StakeDelegation {
         admin: Address,
         authority: Address,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         Self::require_admin(&env, &admin)?;
         env.storage()
             .instance()
@@ -316,6 +321,8 @@ impl StakeDelegation {
         delegatee: Address,
         slash_amount: i128,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         let authority: Address = env
             .storage()
             .instance()
@@ -340,24 +347,20 @@ impl StakeDelegation {
         Self::settle_pending_for(&env, &delegatee, reward_index);
 
         let new_delegatee_stake = delegatee_stake - slash_amount;
-        env.storage().persistent().set(
+        env.set_persistent(
             &DataKey::DelegateeStake(delegatee.clone()),
             &new_delegatee_stake,
         );
 
         // Proportionally reduce each delegator's position
         let delegators: Vec<Address> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::DelegatorsOf(delegatee.clone()))
+            .get_persistent(&DataKey::DelegatorsOf(delegatee.clone()))
             .unwrap_or_else(|| Vec::new(&env));
 
         let mut total_balance_slashed: i128 = 0;
         for delegator in delegators.iter() {
             let delegations: Vec<Delegation> = env
-                .storage()
-                .persistent()
-                .get(&DataKey::Delegations(delegator.clone()))
+                .get_persistent(&DataKey::Delegations(delegator.clone()))
                 .unwrap_or_else(|| Vec::new(&env));
 
             let mut new_delegations = Vec::new(&env);
@@ -374,11 +377,9 @@ impl StakeDelegation {
 
                     // Reduce delegator's staked balance
                     let bal: i128 = env
-                        .storage()
-                        .persistent()
-                        .get(&DataKey::StakedBalance(delegator.clone()))
+                        .get_persistent(&DataKey::StakedBalance(delegator.clone()))
                         .unwrap_or(0);
-                    env.storage().persistent().set(
+                    env.set_persistent(
                         &DataKey::StakedBalance(delegator.clone()),
                         &(bal - delta).max(0),
                     );
@@ -396,23 +397,17 @@ impl StakeDelegation {
                     new_delegations.push_back(d);
                 }
             }
-            env.storage()
-                .persistent()
-                .set(&DataKey::Delegations(delegator.clone()), &new_delegations);
+            env.set_persistent(&DataKey::Delegations(delegator.clone()), &new_delegations);
         }
 
         // Rebuild DelegatorsOf, removing any delegators whose position reached 0
         let delegators: Vec<Address> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::DelegatorsOf(delegatee.clone()))
+            .get_persistent(&DataKey::DelegatorsOf(delegatee.clone()))
             .unwrap_or_else(|| Vec::new(&env));
         let mut remaining_delegators = Vec::new(&env);
         for delegator in delegators.iter() {
             let delegations: Vec<Delegation> = env
-                .storage()
-                .persistent()
-                .get(&DataKey::Delegations(delegator.clone()))
+                .get_persistent(&DataKey::Delegations(delegator.clone()))
                 .unwrap_or_else(|| Vec::new(&env));
             let mut still_delegating = false;
             for d in delegations.iter() {
@@ -425,14 +420,14 @@ impl StakeDelegation {
                 remaining_delegators.push_back(delegator);
             }
         }
-        env.storage().persistent().set(
+        env.set_persistent(
             &DataKey::DelegatorsOf(delegatee.clone()),
             &remaining_delegators,
         );
 
         // Reduce total staked by the sum actually removed from delegators
         let total = Self::get_total_staked(&env);
-        env.storage().persistent().set(
+        env.set_persistent(
             &DataKey::TotalStaked,
             &(total - total_balance_slashed).max(0),
         );
@@ -451,6 +446,8 @@ impl StakeDelegation {
     // ── Staking ───────────────────────────────────────────────────────────────
 
     pub fn stake(env: Env, from: Address, amount: i128) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         Self::require_not_paused(&env)?;
         from.require_auth();
         if amount <= 0 {
@@ -460,18 +457,12 @@ impl StakeDelegation {
         Self::settle_all_delegates(&env, &from);
 
         let bal: i128 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::StakedBalance(from.clone()))
+            .get_persistent(&DataKey::StakedBalance(from.clone()))
             .unwrap_or(0);
-        env.storage()
-            .persistent()
-            .set(&DataKey::StakedBalance(from.clone()), &(bal + amount));
+        env.set_persistent(&DataKey::StakedBalance(from.clone()), &(bal + amount));
 
         let total = Self::get_total_staked(&env);
-        env.storage()
-            .persistent()
-            .set(&DataKey::TotalStaked, &(total + amount));
+        env.set_persistent(&DataKey::TotalStaked, &(total + amount));
 
         env.events().publish(
             (
@@ -485,6 +476,8 @@ impl StakeDelegation {
     }
 
     pub fn unstake(env: Env, from: Address, amount: i128) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         Self::require_not_paused(&env)?;
         from.require_auth();
         if amount <= 0 {
@@ -492,9 +485,7 @@ impl StakeDelegation {
         }
 
         let bal: i128 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::StakedBalance(from.clone()))
+            .get_persistent(&DataKey::StakedBalance(from.clone()))
             .unwrap_or(0);
         if bal < amount {
             return Err(ContractError::InsufficientStake);
@@ -508,13 +499,9 @@ impl StakeDelegation {
 
         Self::settle_all_delegates(&env, &from);
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::StakedBalance(from.clone()), &(bal - amount));
+        env.set_persistent(&DataKey::StakedBalance(from.clone()), &(bal - amount));
         let total = Self::get_total_staked(&env);
-        env.storage()
-            .persistent()
-            .set(&DataKey::TotalStaked, &(total - amount));
+        env.set_persistent(&DataKey::TotalStaked, &(total - amount));
 
         env.events().publish(
             (
@@ -535,6 +522,8 @@ impl StakeDelegation {
         delegatee: Address,
         amount: i128,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         Self::require_not_paused(&env)?;
         delegator.require_auth();
         if amount <= 0 {
@@ -542,9 +531,7 @@ impl StakeDelegation {
         }
 
         let bal: i128 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::StakedBalance(delegator.clone()))
+            .get_persistent(&DataKey::StakedBalance(delegator.clone()))
             .unwrap_or(0);
         let already_delegated = Self::total_delegated(&env, &delegator);
         let free = bal - already_delegated;
@@ -558,15 +545,13 @@ impl StakeDelegation {
         Self::settle_pending_for(&env, &delegatee, reward_index);
 
         let current_stake = Self::get_delegatee_stake(&env, &delegatee);
-        env.storage().persistent().set(
+        env.set_persistent(
             &DataKey::DelegateeStake(delegatee.clone()),
             &(current_stake + amount),
         );
 
         let delegations: Vec<Delegation> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Delegations(delegator.clone()))
+            .get_persistent(&DataKey::Delegations(delegator.clone()))
             .unwrap_or_else(|| Vec::new(&env));
 
         let mut found = false;
@@ -591,9 +576,7 @@ impl StakeDelegation {
             Self::add_delegator_to_delegatee(&env, &delegatee, &delegator);
         }
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::Delegations(delegator.clone()), &new_delegations);
+        env.set_persistent(&DataKey::Delegations(delegator.clone()), &new_delegations);
 
         env.events().publish(
             (
@@ -620,13 +603,13 @@ impl StakeDelegation {
         delegator: Address,
         delegatee: Address,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         Self::require_not_paused(&env)?;
         delegator.require_auth();
 
         let delegations: Vec<Delegation> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Delegations(delegator.clone()))
+            .get_persistent(&DataKey::Delegations(delegator.clone()))
             .unwrap_or_else(|| Vec::new(&env));
 
         let mut found = false;
@@ -641,7 +624,7 @@ impl StakeDelegation {
         }
 
         let current_epoch = Self::current_epoch(&env);
-        env.storage().persistent().set(
+        env.set_persistent(
             &DataKey::RevocationRequest(delegator.clone(), delegatee.clone()),
             &current_epoch,
         );
@@ -662,14 +645,14 @@ impl StakeDelegation {
         delegator: Address,
         delegatee: Address,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         Self::require_not_paused(&env)?;
         delegator.require_auth();
 
         let current_epoch = Self::current_epoch(&env);
         let requested_epoch: u64 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::RevocationRequest(
+            .get_persistent(&DataKey::RevocationRequest(
                 delegator.clone(),
                 delegatee.clone(),
             ))
@@ -683,9 +666,7 @@ impl StakeDelegation {
         Self::settle_pending_for(&env, &delegatee, reward_index);
 
         let delegations: Vec<Delegation> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Delegations(delegator.clone()))
+            .get_persistent(&DataKey::Delegations(delegator.clone()))
             .unwrap_or_else(|| Vec::new(&env));
         let mut amount_to_remove = 0;
         for d in delegations.iter() {
@@ -695,15 +676,13 @@ impl StakeDelegation {
             }
         }
         let current_stake = Self::get_delegatee_stake(&env, &delegatee);
-        env.storage().persistent().set(
+        env.set_persistent(
             &DataKey::DelegateeStake(delegatee.clone()),
             &(current_stake - amount_to_remove),
         );
 
         let delegations: Vec<Delegation> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Delegations(delegator.clone()))
+            .get_persistent(&DataKey::Delegations(delegator.clone()))
             .unwrap_or_else(|| Vec::new(&env));
         let mut new_delegations = Vec::new(&env);
         for d in delegations.iter() {
@@ -711,9 +690,7 @@ impl StakeDelegation {
                 new_delegations.push_back(d);
             }
         }
-        env.storage()
-            .persistent()
-            .set(&DataKey::Delegations(delegator.clone()), &new_delegations);
+        env.set_persistent(&DataKey::Delegations(delegator.clone()), &new_delegations);
 
         // Delegation fully removed: update reverse index
         Self::remove_delegator_from_delegatee(&env, &delegatee, &delegator);
@@ -744,6 +721,8 @@ impl StakeDelegation {
         delegatee: Address,
         amount: i128,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         Self::require_not_paused(&env)?;
         delegator.require_auth();
         if amount <= 0 {
@@ -751,9 +730,7 @@ impl StakeDelegation {
         }
 
         let delegations: Vec<Delegation> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Delegations(delegator.clone()))
+            .get_persistent(&DataKey::Delegations(delegator.clone()))
             .unwrap_or_else(|| Vec::new(&env));
 
         let mut delegation_found = false;
@@ -774,7 +751,7 @@ impl StakeDelegation {
         }
 
         let current_time = env.ledger().timestamp();
-        env.storage().persistent().set(
+        env.set_persistent(
             &DataKey::PendingUndelegation(delegator.clone(), delegatee.clone()),
             &PendingUndelegationRecord {
                 amount,
@@ -798,6 +775,8 @@ impl StakeDelegation {
         delegator: Address,
         delegatee: Address,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         Self::require_not_paused(&env)?;
         delegator.require_auth();
 
@@ -805,9 +784,7 @@ impl StakeDelegation {
         let cooldown_secs = Self::get_undelegation_cooldown(&env);
 
         let pending: PendingUndelegationRecord = env
-            .storage()
-            .persistent()
-            .get(&DataKey::PendingUndelegation(
+            .get_persistent(&DataKey::PendingUndelegation(
                 delegator.clone(),
                 delegatee.clone(),
             ))
@@ -822,9 +799,7 @@ impl StakeDelegation {
         Self::settle_pending_for(&env, &delegatee, reward_index);
 
         let delegations: Vec<Delegation> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Delegations(delegator.clone()))
+            .get_persistent(&DataKey::Delegations(delegator.clone()))
             .unwrap_or_else(|| Vec::new(&env));
 
         let mut amount_removed = 0i128;
@@ -845,12 +820,10 @@ impl StakeDelegation {
             }
         }
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::Delegations(delegator.clone()), &new_delegations);
+        env.set_persistent(&DataKey::Delegations(delegator.clone()), &new_delegations);
 
         let current_stake = Self::get_delegatee_stake(&env, &delegatee);
-        env.storage().persistent().set(
+        env.set_persistent(
             &DataKey::DelegateeStake(delegatee.clone()),
             &(current_stake - amount_removed),
         );
@@ -880,6 +853,8 @@ impl StakeDelegation {
     // ── Reward distribution ───────────────────────────────────────────────────
 
     pub fn fund_rewards(env: Env, admin: Address, amount: i128) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         Self::require_not_paused(&env)?;
         Self::require_admin(&env, &admin)?;
         if amount <= 0 {
@@ -888,9 +863,7 @@ impl StakeDelegation {
         let total = Self::get_total_staked(&env);
         if total > 0 {
             let idx = Self::get_reward_index(&env);
-            env.storage()
-                .persistent()
-                .set(&DataKey::RewardIndex, &(idx + amount * SCALE / total));
+            env.set_persistent(&DataKey::RewardIndex, &(idx + amount * SCALE / total));
         }
         env.events().publish(
             (
@@ -904,6 +877,8 @@ impl StakeDelegation {
 
     /// Claim net rewards (after commission deduction) as a delegatee.
     pub fn claim_delegatee_rewards(env: Env, delegatee: Address) -> Result<i128, ContractError> {
+        env.extend_instance_ttl();
+
         Self::require_not_paused(&env)?;
         delegatee.require_auth();
 
@@ -911,13 +886,9 @@ impl StakeDelegation {
         Self::settle_pending_for(&env, &delegatee, reward_index);
 
         let banked: i128 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::PendingRewards(delegatee.clone()))
+            .get_persistent(&DataKey::PendingRewards(delegatee.clone()))
             .unwrap_or(0);
-        env.storage()
-            .persistent()
-            .set(&DataKey::PendingRewards(delegatee.clone()), &0i128);
+        env.set_persistent(&DataKey::PendingRewards(delegatee.clone()), &0i128);
 
         env.events().publish(
             (
@@ -933,21 +904,21 @@ impl StakeDelegation {
     // ── Queries ───────────────────────────────────────────────────────────────
 
     pub fn get_delegations(env: Env, delegator: Address) -> Vec<Delegation> {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Delegations(delegator))
+        env.extend_instance_ttl();
+
+        env.get_persistent(&DataKey::Delegations(delegator))
             .unwrap_or_else(|| Vec::new(&env))
     }
 
     /// Returns the net claimable rewards (after commission) for a delegatee.
     pub fn get_delegatee_claimable(env: Env, delegatee: Address) -> i128 {
+        env.extend_instance_ttl();
+
         let reward_index = Self::get_reward_index(&env);
         let delegatee_stake = Self::get_delegatee_stake(&env, &delegatee);
         let delegatee_index = Self::get_delegatee_index(&env, &delegatee);
         let commission_rate: u32 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::DelegateeCommissionRate(delegatee.clone()))
+            .get_persistent(&DataKey::DelegateeCommissionRate(delegatee.clone()))
             .unwrap_or(0);
 
         let mut live = 0i128;
@@ -957,25 +928,27 @@ impl StakeDelegation {
             live = gross - commission;
         }
         let banked: i128 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::PendingRewards(delegatee.clone()))
+            .get_persistent(&DataKey::PendingRewards(delegatee.clone()))
             .unwrap_or(0);
         live + banked
     }
 
     pub fn staked_balance(env: Env, user: Address) -> i128 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::StakedBalance(user))
+        env.extend_instance_ttl();
+
+        env.get_persistent(&DataKey::StakedBalance(user))
             .unwrap_or(0)
     }
 
     pub fn current_epoch_num(env: Env) -> u64 {
+        env.extend_instance_ttl();
+
         Self::current_epoch(&env)
     }
 
     pub fn pause(env: Env, admin: Address) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         Self::require_admin(&env, &admin)?;
         env.storage().instance().set(&DataKey::Paused, &true);
         env.events().publish(
@@ -986,6 +959,8 @@ impl StakeDelegation {
     }
 
     pub fn unpause(env: Env, admin: Address) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         Self::require_admin(&env, &admin)?;
         env.storage().instance().set(&DataKey::Paused, &false);
         env.events().publish(
@@ -999,6 +974,8 @@ impl StakeDelegation {
     }
 
     pub fn is_paused(env: Env) -> bool {
+        env.extend_instance_ttl();
+
         env.storage()
             .instance()
             .get::<_, bool>(&DataKey::Paused)
@@ -1008,30 +985,20 @@ impl StakeDelegation {
     // ── Internal helpers ──────────────────────────────────────────────────────
 
     fn get_total_staked(env: &Env) -> i128 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::TotalStaked)
-            .unwrap_or(0)
+        env.get_persistent(&DataKey::TotalStaked).unwrap_or(0)
     }
 
     fn get_reward_index(env: &Env) -> i128 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::RewardIndex)
-            .unwrap_or(0)
+        env.get_persistent(&DataKey::RewardIndex).unwrap_or(0)
     }
 
     fn get_delegatee_stake(env: &Env, addr: &Address) -> i128 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::DelegateeStake(addr.clone()))
+        env.get_persistent(&DataKey::DelegateeStake(addr.clone()))
             .unwrap_or(0)
     }
 
     fn get_delegatee_index(env: &Env, addr: &Address) -> i128 {
-        env.storage()
-            .persistent()
-            .get(&DataKey::DelegateeRewardIndex(addr.clone()))
+        env.get_persistent(&DataKey::DelegateeRewardIndex(addr.clone()))
             .unwrap_or(0)
     }
 
@@ -1043,38 +1010,32 @@ impl StakeDelegation {
             let gross = delegatee_stake * (current_reward_index - delegatee_index) / SCALE;
             if gross > 0 {
                 let commission_rate: u32 = env
-                    .storage()
-                    .persistent()
-                    .get(&DataKey::DelegateeCommissionRate(addr.clone()))
+                    .get_persistent(&DataKey::DelegateeCommissionRate(addr.clone()))
                     .unwrap_or(0);
                 let commission = gross * commission_rate as i128 / 10_000;
                 let net_rewards = gross - commission;
 
                 if commission > 0 {
                     let prev: i128 = env
-                        .storage()
-                        .persistent()
-                        .get(&DataKey::DelegateeCommissionBalance(addr.clone()))
+                        .get_persistent(&DataKey::DelegateeCommissionBalance(addr.clone()))
                         .unwrap_or(0);
-                    env.storage().persistent().set(
+                    env.set_persistent(
                         &DataKey::DelegateeCommissionBalance(addr.clone()),
                         &(prev + commission),
                     );
                 }
                 if net_rewards > 0 {
                     let banked: i128 = env
-                        .storage()
-                        .persistent()
-                        .get(&DataKey::PendingRewards(addr.clone()))
+                        .get_persistent(&DataKey::PendingRewards(addr.clone()))
                         .unwrap_or(0);
-                    env.storage().persistent().set(
+                    env.set_persistent(
                         &DataKey::PendingRewards(addr.clone()),
                         &(banked + net_rewards),
                     );
                 }
             }
         }
-        env.storage().persistent().set(
+        env.set_persistent(
             &DataKey::DelegateeRewardIndex(addr.clone()),
             &current_reward_index,
         );
@@ -1083,9 +1044,7 @@ impl StakeDelegation {
     fn settle_all_delegates(env: &Env, delegator: &Address) {
         let reward_index = Self::get_reward_index(env);
         let delegations: Vec<Delegation> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Delegations(delegator.clone()))
+            .get_persistent(&DataKey::Delegations(delegator.clone()))
             .unwrap_or_else(|| Vec::new(env));
         for d in delegations.iter() {
             Self::settle_pending_for(env, &d.delegatee, reward_index);
@@ -1094,9 +1053,7 @@ impl StakeDelegation {
 
     fn total_delegated(env: &Env, delegator: &Address) -> i128 {
         let delegations: Vec<Delegation> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Delegations(delegator.clone()))
+            .get_persistent(&DataKey::Delegations(delegator.clone()))
             .unwrap_or_else(|| Vec::new(env));
         let mut total: i128 = 0;
         for d in delegations.iter() {
@@ -1108,9 +1065,7 @@ impl StakeDelegation {
     /// Add a delegator to DelegatorsOf(delegatee) if not already present.
     fn add_delegator_to_delegatee(env: &Env, delegatee: &Address, delegator: &Address) {
         let mut delegators: Vec<Address> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::DelegatorsOf(delegatee.clone()))
+            .get_persistent(&DataKey::DelegatorsOf(delegatee.clone()))
             .unwrap_or_else(|| Vec::new(env));
         for d in delegators.iter() {
             if d == *delegator {
@@ -1118,17 +1073,13 @@ impl StakeDelegation {
             }
         }
         delegators.push_back(delegator.clone());
-        env.storage()
-            .persistent()
-            .set(&DataKey::DelegatorsOf(delegatee.clone()), &delegators);
+        env.set_persistent(&DataKey::DelegatorsOf(delegatee.clone()), &delegators);
     }
 
     /// Remove a delegator from DelegatorsOf(delegatee).
     fn remove_delegator_from_delegatee(env: &Env, delegatee: &Address, delegator: &Address) {
         let delegators: Vec<Address> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::DelegatorsOf(delegatee.clone()))
+            .get_persistent(&DataKey::DelegatorsOf(delegatee.clone()))
             .unwrap_or_else(|| Vec::new(env));
         let mut new_delegators = Vec::new(env);
         for d in delegators.iter() {
@@ -1136,9 +1087,7 @@ impl StakeDelegation {
                 new_delegators.push_back(d);
             }
         }
-        env.storage()
-            .persistent()
-            .set(&DataKey::DelegatorsOf(delegatee.clone()), &new_delegators);
+        env.set_persistent(&DataKey::DelegatorsOf(delegatee.clone()), &new_delegators);
     }
 
     // ── Delegator slash (Issue #1082) ─────────────────────────────────────────
@@ -1149,6 +1098,8 @@ impl StakeDelegation {
         delegator: Address,
         amount: i128,
     ) -> Result<i128, ContractError> {
+        env.extend_instance_ttl();
+
         Self::require_admin(&env, &admin)?;
 
         if amount <= 0 {
@@ -1156,9 +1107,7 @@ impl StakeDelegation {
         }
 
         let balance: i128 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::StakedBalance(delegator.clone()))
+            .get_persistent(&DataKey::StakedBalance(delegator.clone()))
             .unwrap_or(0);
 
         if amount > balance {
@@ -1168,19 +1117,13 @@ impl StakeDelegation {
         Self::settle_all_delegates(&env, &delegator);
 
         let new_balance = balance - amount;
-        env.storage()
-            .persistent()
-            .set(&DataKey::StakedBalance(delegator.clone()), &new_balance);
+        env.set_persistent(&DataKey::StakedBalance(delegator.clone()), &new_balance);
 
         let total = Self::get_total_staked(&env);
-        env.storage()
-            .persistent()
-            .set(&DataKey::TotalStaked, &(total - amount));
+        env.set_persistent(&DataKey::TotalStaked, &(total - amount));
 
         let delegations: Vec<Delegation> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Delegations(delegator.clone()))
+            .get_persistent(&DataKey::Delegations(delegator.clone()))
             .unwrap_or_else(|| Vec::new(&env));
 
         let total_delegated = Self::total_delegated(&env, &delegator);
@@ -1192,7 +1135,7 @@ impl StakeDelegation {
 
                 if delta > 0 {
                     let ds = Self::get_delegatee_stake(&env, &d.delegatee);
-                    env.storage().persistent().set(
+                    env.set_persistent(
                         &DataKey::DelegateeStake(d.delegatee.clone()),
                         &(ds - delta).max(0),
                     );
@@ -1209,9 +1152,7 @@ impl StakeDelegation {
                     Self::remove_delegator_from_delegatee(&env, &d.delegatee, &delegator);
                 }
             }
-            env.storage()
-                .persistent()
-                .set(&DataKey::Delegations(delegator.clone()), &new_delegations);
+            env.set_persistent(&DataKey::Delegations(delegator.clone()), &new_delegations);
         }
 
         env.events().publish(

@@ -13,6 +13,7 @@ use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, xdr::ToXdr, Address, BytesN, Env, IntoVal,
     Symbol, Val, Vec,
 };
+use soroban_storage_ttl::TtlStorage;
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -56,6 +57,8 @@ impl Timelock {
         max_delay: u64,
         multisig_members: Vec<Address>,
     ) -> Result<(), TimelockError> {
+        env.extend_instance_ttl();
+
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(TimelockError::AlreadyInitialized);
         }
@@ -87,6 +90,8 @@ impl Timelock {
         args: Vec<Val>,
         delay: u64,
     ) -> Result<BytesN<32>, TimelockError> {
+        env.extend_instance_ttl();
+
         admin.require_auth();
         let current_admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         if admin != current_admin {
@@ -123,17 +128,11 @@ impl Timelock {
         let tx_hash = env.crypto().sha256(&hash_data.to_xdr(&env));
         let tx_hash_n: BytesN<32> = tx_hash.into();
 
-        if env
-            .storage()
-            .temporary()
-            .has(&DataKey::Queued(tx_hash_n.clone()))
-        {
+        if env.has_temporary(&DataKey::Queued(tx_hash_n.clone())) {
             return Err(TimelockError::TransactionAlreadyQueued);
         }
 
-        env.storage()
-            .temporary()
-            .set(&DataKey::Queued(tx_hash_n.clone()), &eta);
+        env.set_temporary(&DataKey::Queued(tx_hash_n.clone()), &eta);
 
         env.events().publish(
             (Symbol::new(&env, "governance"), Symbol::new(&env, "queued")),
@@ -151,6 +150,8 @@ impl Timelock {
         args: Vec<Val>,
         eta: u64,
     ) -> Result<Val, TimelockError> {
+        env.extend_instance_ttl();
+
         if env
             .storage()
             .instance()
@@ -172,9 +173,7 @@ impl Timelock {
         let tx_hash_n: BytesN<32> = tx_hash.into();
 
         let stored_eta: u64 = env
-            .storage()
-            .temporary()
-            .get(&DataKey::Queued(tx_hash_n.clone()))
+            .get_temporary(&DataKey::Queued(tx_hash_n.clone()))
             .ok_or(TimelockError::TransactionNotQueued)?;
 
         if stored_eta != eta {
@@ -211,17 +210,15 @@ impl Timelock {
 
     /// Cancel a queued transaction
     pub fn cancel(env: Env, admin: Address, tx_hash: BytesN<32>) -> Result<(), TimelockError> {
+        env.extend_instance_ttl();
+
         admin.require_auth();
         let current_admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         if admin != current_admin {
             return Err(TimelockError::NotAuthorized);
         }
 
-        if !env
-            .storage()
-            .temporary()
-            .has(&DataKey::Queued(tx_hash.clone()))
-        {
+        if !env.has_temporary(&DataKey::Queued(tx_hash.clone())) {
             return Err(TimelockError::TransactionNotQueued);
         }
 
@@ -242,6 +239,8 @@ impl Timelock {
 
     /// Emergency pause using multisig (requires 2 members to authorize)
     pub fn emergency_pause(env: Env, members: Vec<Address>) -> Result<(), TimelockError> {
+        env.extend_instance_ttl();
+
         if members.len() < 2 {
             return Err(TimelockError::InsufficientMultisigApprovals);
         }
@@ -273,6 +272,8 @@ impl Timelock {
     }
 
     pub fn unpause(env: Env, admin: Address) -> Result<(), TimelockError> {
+        env.extend_instance_ttl();
+
         admin.require_auth();
         let current_admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         if admin != current_admin {
@@ -287,6 +288,8 @@ impl Timelock {
     /// Emits `operation_expired` so indexers can track the cleared operation.
     /// Admin-only; anyone can detect expiry, but only admin may clear the slot.
     pub fn expire(env: Env, admin: Address, tx_hash: BytesN<32>) -> Result<(), TimelockError> {
+        env.extend_instance_ttl();
+
         admin.require_auth();
         let current_admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         if admin != current_admin {
@@ -294,9 +297,7 @@ impl Timelock {
         }
 
         let stored_eta: u64 = env
-            .storage()
-            .temporary()
-            .get(&DataKey::Queued(tx_hash.clone()))
+            .get_temporary(&DataKey::Queued(tx_hash.clone()))
             .ok_or(TimelockError::TransactionNotQueued)?;
 
         let now = env.ledger().timestamp();
@@ -325,6 +326,8 @@ impl Timelock {
         admin: Address,
         new_min_delay: u64,
     ) -> Result<(), TimelockError> {
+        env.extend_instance_ttl();
+
         admin.require_auth();
         let current_admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         if admin != current_admin {

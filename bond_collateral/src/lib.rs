@@ -4,6 +4,7 @@ use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, BytesN, Env,
     IntoVal, String, Symbol, Vec,
 };
+use soroban_storage_ttl::TtlStorage;
 
 pub mod access_control;
 mod formal_properties;
@@ -188,15 +189,11 @@ fn try_fetch_oracle_price(env: &Env) -> Option<OraclePrice> {
 }
 
 fn get_position(env: &Env, position_id: &BytesN<32>) -> Option<CollateralPosition> {
-    env.storage()
-        .persistent()
-        .get(&DataKey::BondCollateral(position_id.clone()))
+    env.get_persistent(&DataKey::BondCollateral(position_id.clone()))
 }
 
 fn put_position(env: &Env, position_id: &BytesN<32>, position: &CollateralPosition) {
-    env.storage()
-        .persistent()
-        .set(&DataKey::BondCollateral(position_id.clone()), position);
+    env.set_persistent(&DataKey::BondCollateral(position_id.clone()), position);
 }
 
 fn remove_position(env: &Env, position_id: &BytesN<32>) {
@@ -221,6 +218,8 @@ fn put_total_collateral(env: &Env, total: i128) {
 #[contractimpl]
 impl BondCollateral {
     pub fn init(env: Env, admin: Address, token: Address) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(ContractError::AlreadyInitialized);
         }
@@ -257,10 +256,14 @@ impl BondCollateral {
     }
 
     pub fn contract_version(env: Env) -> u32 {
+        env.extend_instance_ttl();
+
         get_contract_version(&env)
     }
 
     pub fn set_admin(env: Env, admin: Address, new_admin: Address) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_not_paused(&env)?;
         let current_admin = get_admin(&env);
         access_control::require_admin_permission(&env, &current_admin, &admin, "set_admin")?;
@@ -283,6 +286,8 @@ impl BondCollateral {
         warning: u32,
         liquidation: u32,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_not_paused(&env)?;
         let current_admin = get_admin(&env);
         access_control::require_admin_permission(&env, &current_admin, &admin, "set_thresholds")?;
@@ -314,6 +319,8 @@ impl BondCollateral {
         admin: Address,
         cap_bps: u32,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_not_paused(&env)?;
         let current_admin = get_admin(&env);
         access_control::require_admin_permission(
@@ -349,6 +356,8 @@ impl BondCollateral {
         feed: Address,
         staleness: u64,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_not_paused(&env)?;
         require_admin(&env, &admin)?;
         env.storage().instance().set(&DataKey::OracleFeed, &feed);
@@ -372,6 +381,8 @@ impl BondCollateral {
         admin: Address,
         ratio: u32,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_not_paused(&env)?;
         require_admin(&env, &admin)?;
         if ratio <= 100 {
@@ -396,6 +407,8 @@ impl BondCollateral {
         position_id: BytesN<32>,
         amount: i128,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_not_paused(&env)?;
         owner.require_auth();
 
@@ -463,6 +476,8 @@ impl BondCollateral {
         position_id: BytesN<32>,
         bond_amount: i128,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_not_paused(&env)?;
         owner.require_auth();
 
@@ -526,6 +541,8 @@ impl BondCollateral {
         position_id: BytesN<32>,
         bond_amount: i128,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_not_paused(&env)?;
         owner.require_auth();
 
@@ -565,6 +582,8 @@ impl BondCollateral {
         position_id: BytesN<32>,
         amount: i128,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_not_paused(&env)?;
         owner.require_auth();
 
@@ -627,6 +646,8 @@ impl BondCollateral {
         keeper: Address,
         position_id: BytesN<32>,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_not_paused(&env)?;
         keeper.require_auth();
 
@@ -729,10 +750,14 @@ impl BondCollateral {
     }
 
     pub fn get_position(env: Env, position_id: BytesN<32>) -> Option<CollateralPosition> {
+        env.extend_instance_ttl();
+
         get_position(&env, &position_id)
     }
 
     pub fn get_collateral_ratio(env: Env, position_id: BytesN<32>) -> Option<u32> {
+        env.extend_instance_ttl();
+
         let p = get_position(&env, &position_id)?;
         let price = try_fetch_oracle_price(&env)
             .map(|op| op.price)
@@ -745,14 +770,20 @@ impl BondCollateral {
     }
 
     pub fn get_thresholds(env: Env) -> (u32, u32) {
+        env.extend_instance_ttl();
+
         (get_warning_threshold(&env), get_liquidation_threshold(&env))
     }
 
     pub fn get_keeper_reward_cap(env: Env) -> u32 {
+        env.extend_instance_ttl();
+
         get_keeper_reward_cap(&env)
     }
 
     pub fn total_collateral(env: Env) -> i128 {
+        env.extend_instance_ttl();
+
         get_total_collateral(&env)
     }
 
@@ -771,6 +802,8 @@ impl BondCollateral {
         admin: Address,
         slashing_module: Address,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_not_paused(&env)?;
         require_admin(&env, &admin)?;
         env.storage()
@@ -785,6 +818,8 @@ impl BondCollateral {
 
     /// Configure the operator address allowed to lock/unlock inspector bonds.
     pub fn set_operator(env: Env, admin: Address, operator: Address) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_not_paused(&env)?;
         require_admin(&env, &admin)?;
         env.storage().instance().set(&DataKey::Operator, &operator);
@@ -797,13 +832,15 @@ impl BondCollateral {
 
     /// Inspector deposits collateral as a bond. The inspector must auth.
     pub fn deposit_bond(env: Env, inspector: Address, amount: i128) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_not_paused(&env)?;
         inspector.require_auth();
         if amount <= 0 {
             return Err(ContractError::InvalidAmount);
         }
         let current = get_inspector_bond(&env, &inspector);
-        env.storage().persistent().set(
+        env.set_persistent(
             &DataKey::InspectorBond(inspector.clone()),
             &(current + amount),
         );
@@ -821,6 +858,8 @@ impl BondCollateral {
     /// Inspector withdraws part or all of their bond. Blocked when any
     /// inspection_id lock is active on the inspector.
     pub fn withdraw_bond(env: Env, inspector: Address, amount: i128) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_not_paused(&env)?;
         inspector.require_auth();
         if amount <= 0 {
@@ -833,7 +872,7 @@ impl BondCollateral {
         if amount > current {
             return Err(ContractError::InsufficientBond);
         }
-        env.storage().persistent().set(
+        env.set_persistent(
             &DataKey::InspectorBond(inspector.clone()),
             &(current - amount),
         );
@@ -850,6 +889,8 @@ impl BondCollateral {
 
     /// Current bond balance for the given inspector.
     pub fn get_bond(env: Env, inspector: Address) -> i128 {
+        env.extend_instance_ttl();
+
         get_inspector_bond(&env, &inspector)
     }
 
@@ -861,6 +902,8 @@ impl BondCollateral {
         inspector: Address,
         inspection_id: String,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_not_paused(&env)?;
         require_operator(&env, &operator)?;
         let mut locks = get_inspector_locks(&env, &inspector);
@@ -870,9 +913,7 @@ impl BondCollateral {
             }
         }
         locks.push_back(inspection_id.clone());
-        env.storage()
-            .persistent()
-            .set(&DataKey::InspectorLocks(inspector.clone()), &locks);
+        env.set_persistent(&DataKey::InspectorLocks(inspector.clone()), &locks);
         env.events().publish(
             (
                 symbol_short!("bond"),
@@ -892,6 +933,8 @@ impl BondCollateral {
         inspector: Address,
         inspection_id: String,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_not_paused(&env)?;
         require_operator(&env, &operator)?;
         let locks = get_inspector_locks(&env, &inspector);
@@ -907,9 +950,7 @@ impl BondCollateral {
         if !found {
             return Err(ContractError::LockNotFound);
         }
-        env.storage()
-            .persistent()
-            .set(&DataKey::InspectorLocks(inspector.clone()), &pruned);
+        env.set_persistent(&DataKey::InspectorLocks(inspector.clone()), &pruned);
         env.events().publish(
             (
                 symbol_short!("bond"),
@@ -923,6 +964,8 @@ impl BondCollateral {
 
     /// Read the active inspection_id locks for an inspector.
     pub fn get_locks(env: Env, inspector: Address) -> Vec<String> {
+        env.extend_instance_ttl();
+
         get_inspector_locks(&env, &inspector)
     }
 
@@ -936,6 +979,8 @@ impl BondCollateral {
         inspection_id: String,
         reason: String,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_not_paused(&env)?;
         require_admin(&env, &admin)?;
         if slash_amount <= 0 {
@@ -967,7 +1012,7 @@ impl BondCollateral {
             ],
         );
 
-        env.storage().persistent().set(
+        env.set_persistent(
             &DataKey::InspectorBond(inspector.clone()),
             &(current - slash_amount),
         );
@@ -985,6 +1030,8 @@ impl BondCollateral {
 
     /// Pause the contract. Admin-only.
     pub fn pause(env: Env, admin: Address) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_admin(&env, &admin)?;
         env.storage().instance().set(&DataKey::Paused, &true);
         env.events().publish(
@@ -996,6 +1043,8 @@ impl BondCollateral {
 
     /// Unpause the contract. Admin-only.
     pub fn unpause(env: Env, admin: Address) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         require_admin(&env, &admin)?;
         env.storage().instance().set(&DataKey::Paused, &false);
         env.events().publish(
@@ -1007,6 +1056,8 @@ impl BondCollateral {
 
     /// True iff the contract is currently paused.
     pub fn is_paused(env: Env) -> bool {
+        env.extend_instance_ttl();
+
         env.storage()
             .instance()
             .get::<_, bool>(&DataKey::Paused)
@@ -1017,16 +1068,12 @@ impl BondCollateral {
 // ── Inspector bond helpers ───────────────────────────────────────────────────
 
 fn get_inspector_bond(env: &Env, inspector: &Address) -> i128 {
-    env.storage()
-        .persistent()
-        .get(&DataKey::InspectorBond(inspector.clone()))
+    env.get_persistent(&DataKey::InspectorBond(inspector.clone()))
         .unwrap_or(0)
 }
 
 fn get_inspector_locks(env: &Env, inspector: &Address) -> Vec<String> {
-    env.storage()
-        .persistent()
-        .get(&DataKey::InspectorLocks(inspector.clone()))
+    env.get_persistent(&DataKey::InspectorLocks(inspector.clone()))
         .unwrap_or_else(|| Vec::new(env))
 }
 
@@ -1063,6 +1110,9 @@ fn require_operator(env: &Env, caller: &Address) -> Result<(), ContractError> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod ttl_tests;
 
 #[cfg(test)]
 mod test {

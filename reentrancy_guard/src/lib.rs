@@ -3,6 +3,7 @@
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, Address, BytesN, Env, Symbol,
 };
+use soroban_storage_ttl::TtlStorage;
 
 pub mod access_control;
 
@@ -107,6 +108,8 @@ fn set_call_depth(env: &Env, contract: &Address, entry_point: &BytesN<32>, depth
 #[contractimpl]
 impl ReentrancyGuard {
     pub fn init(env: Env, admin: Address) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(ContractError::AlreadyInitialized);
         }
@@ -131,10 +134,14 @@ impl ReentrancyGuard {
     }
 
     pub fn contract_version(env: Env) -> u32 {
+        env.extend_instance_ttl();
+
         get_contract_version(&env)
     }
 
     pub fn set_admin(env: Env, admin: Address, new_admin: Address) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         let current_admin = get_admin(&env);
         access_control::require_admin_permission(&env, &current_admin, &admin, "set_admin")?;
 
@@ -155,6 +162,8 @@ impl ReentrancyGuard {
         admin: Address,
         max_depth: u32,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         let current_admin = get_admin(&env);
         access_control::require_admin_permission(
             &env,
@@ -187,6 +196,8 @@ impl ReentrancyGuard {
         admin: Address,
         contract: Address,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         let current_admin = get_admin(&env);
         access_control::require_admin_permission(&env, &current_admin, &admin, "activate_guard")?;
 
@@ -210,6 +221,8 @@ impl ReentrancyGuard {
         admin: Address,
         contract: Address,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         let current_admin = get_admin(&env);
         access_control::require_admin_permission(&env, &current_admin, &admin, "deactivate_guard")?;
 
@@ -233,6 +246,8 @@ impl ReentrancyGuard {
         admin: Address,
         pattern_hash: BytesN<32>,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         let current_admin = get_admin(&env);
         access_control::require_admin_permission(&env, &current_admin, &admin, "allow_pattern")?;
 
@@ -260,6 +275,8 @@ impl ReentrancyGuard {
         admin: Address,
         pattern_hash: BytesN<32>,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         let current_admin = get_admin(&env);
         access_control::require_admin_permission(&env, &current_admin, &admin, "disallow_pattern")?;
 
@@ -283,6 +300,8 @@ impl ReentrancyGuard {
         contract: Address,
         entry_point: BytesN<32>,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         if !is_guard_active(&env, &contract) {
             return Err(ContractError::GuardNotActive);
         }
@@ -321,6 +340,8 @@ impl ReentrancyGuard {
     }
 
     pub fn exit(env: Env, contract: Address, entry_point: BytesN<32>) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         if !is_guard_active(&env, &contract) {
             return Err(ContractError::GuardNotActive);
         }
@@ -348,18 +369,26 @@ impl ReentrancyGuard {
     }
 
     pub fn get_call_depth(env: Env, contract: Address, entry_point: BytesN<32>) -> u32 {
+        env.extend_instance_ttl();
+
         get_call_depth(&env, &contract, &entry_point)
     }
 
     pub fn is_guard_active(env: Env, contract: Address) -> bool {
+        env.extend_instance_ttl();
+
         is_guard_active(&env, &contract)
     }
 
     pub fn is_pattern_allowed(env: Env, pattern_hash: BytesN<32>) -> bool {
+        env.extend_instance_ttl();
+
         is_pattern_allowed(&env, &pattern_hash)
     }
 
     pub fn get_max_call_depth(env: Env) -> u32 {
+        env.extend_instance_ttl();
+
         get_max_call_depth(&env)
     }
 }

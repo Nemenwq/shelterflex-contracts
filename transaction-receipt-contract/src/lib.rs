@@ -12,6 +12,7 @@ use soroban_pausable_core::{Pausable, PausableError};
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, Address, BytesN, String, Symbol,
 };
+use soroban_storage_ttl::TtlStorage;
 
 #[cfg(kani)]
 pub mod formal_properties;
@@ -368,6 +369,8 @@ impl TransactionReceiptContract {
         admin: Address,
         operator: Address,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         // Check if already initialized by checking if Admin key exists
         if env.storage().instance().has(&StorageKey::Admin) {
             return Err(ContractError::AlreadyInitialized);
@@ -400,6 +403,8 @@ impl TransactionReceiptContract {
     }
 
     pub fn contract_version(env: soroban_sdk::Env) -> u32 {
+        env.extend_instance_ttl();
+
         env.storage()
             .instance()
             .get::<_, u32>(&StorageKey::ContractVersion)
@@ -407,6 +412,8 @@ impl TransactionReceiptContract {
     }
 
     pub fn version(env: soroban_sdk::Env) -> u32 {
+        env.extend_instance_ttl();
+
         Self::contract_version(env)
     }
 
@@ -430,6 +437,8 @@ impl TransactionReceiptContract {
         admin: Address,
         new_operator: Address,
     ) -> Result<(), ContractError> {
+        env.extend_instance_ttl();
+
         // Require authentication from the admin
         admin.require_auth();
 
@@ -479,6 +488,8 @@ impl TransactionReceiptContract {
         operator: Address,
         input: ReceiptInput,
     ) -> Result<BytesN<32>, ContractError> {
+        env.extend_instance_ttl();
+
         // Require authentication from the operator
         operator.require_auth();
 
@@ -510,11 +521,7 @@ impl TransactionReceiptContract {
         }
 
         // Check for duplicate tx_id
-        if env
-            .storage()
-            .persistent()
-            .has(&StorageKey::Receipt(tx_id.clone()))
-        {
+        if env.has_persistent(&StorageKey::Receipt(tx_id.clone())) {
             return Err(ContractError::DuplicateTransaction);
         }
 
@@ -540,45 +547,35 @@ impl TransactionReceiptContract {
         };
 
         // Store receipt in persistent storage
-        env.storage()
-            .persistent()
-            .set(&StorageKey::Receipt(tx_id.clone()), &receipt);
+        env.set_persistent(&StorageKey::Receipt(tx_id.clone()), &receipt);
 
         // Update deal index
         let deal_count_key = StorageKey::DealCount(input.deal_id.clone());
-        let current_count: u32 = env.storage().persistent().get(&deal_count_key).unwrap_or(0);
+        let current_count: u32 = env.get_persistent(&deal_count_key).unwrap_or(0);
 
         // Store tx_id in deal index
         let deal_index_key = StorageKey::DealIndex(input.deal_id.clone(), current_count);
-        env.storage().persistent().set(&deal_index_key, &tx_id);
+        env.set_persistent(&deal_index_key, &tx_id);
 
         // Increment deal count
-        env.storage()
-            .persistent()
-            .set(&deal_count_key, &(current_count + 1));
+        env.set_persistent(&deal_count_key, &(current_count + 1));
 
         // Update user indices for from and to addresses
         if let Some(ref from_addr) = receipt.from {
             let user_count_key = StorageKey::UserCount(from_addr.clone());
-            let user_count: u32 = env.storage().persistent().get(&user_count_key).unwrap_or(0);
-            env.storage().persistent().set(
+            let user_count: u32 = env.get_persistent(&user_count_key).unwrap_or(0);
+            env.set_persistent(
                 &StorageKey::UserIndex(from_addr.clone(), user_count),
                 &tx_id,
             );
-            env.storage()
-                .persistent()
-                .set(&user_count_key, &(user_count + 1));
+            env.set_persistent(&user_count_key, &(user_count + 1));
         }
 
         if let Some(ref to_addr) = receipt.to {
             let user_count_key = StorageKey::UserCount(to_addr.clone());
-            let user_count: u32 = env.storage().persistent().get(&user_count_key).unwrap_or(0);
-            env.storage()
-                .persistent()
-                .set(&StorageKey::UserIndex(to_addr.clone(), user_count), &tx_id);
-            env.storage()
-                .persistent()
-                .set(&user_count_key, &(user_count + 1));
+            let user_count: u32 = env.get_persistent(&user_count_key).unwrap_or(0);
+            env.set_persistent(&StorageKey::UserIndex(to_addr.clone(), user_count), &tx_id);
+            env.set_persistent(&user_count_key, &(user_count + 1));
         }
 
         // Emit event with topic ("receipt", tx_id) and receipt payload
@@ -609,7 +606,9 @@ impl TransactionReceiptContract {
     /// * Returns None for non-existent tx_id (Requirement 8.2)
     /// * No authorization required (public read)
     pub fn get_receipt(env: soroban_sdk::Env, tx_id: BytesN<32>) -> Option<Receipt> {
-        env.storage().persistent().get(&StorageKey::Receipt(tx_id))
+        env.extend_instance_ttl();
+
+        env.get_persistent(&StorageKey::Receipt(tx_id))
     }
 
     /// List all receipts for a specific deal with pagination
@@ -634,13 +633,15 @@ impl TransactionReceiptContract {
         limit: u32,
         cursor: Option<u32>,
     ) -> soroban_sdk::Vec<Receipt> {
+        env.extend_instance_ttl();
+
         use soroban_sdk::Vec;
 
         let mut results = Vec::new(&env);
 
         // Get total count of receipts for this deal
         let deal_count_key = StorageKey::DealCount(deal_id.clone());
-        let total_count: u32 = env.storage().persistent().get(&deal_count_key).unwrap_or(0);
+        let total_count: u32 = env.get_persistent(&deal_count_key).unwrap_or(0);
 
         // Calculate start index from cursor (default 0)
         let start_index = cursor.unwrap_or(0);
@@ -653,16 +654,10 @@ impl TransactionReceiptContract {
             let deal_index_key = StorageKey::DealIndex(deal_id.clone(), index);
 
             // Load tx_id from deal index
-            if let Some(tx_id) = env
-                .storage()
-                .persistent()
-                .get::<StorageKey, BytesN<32>>(&deal_index_key)
-            {
+            if let Some(tx_id) = env.get_persistent::<StorageKey, BytesN<32>>(&deal_index_key) {
                 // Load receipt for this tx_id
-                if let Some(receipt) = env
-                    .storage()
-                    .persistent()
-                    .get::<StorageKey, Receipt>(&StorageKey::Receipt(tx_id))
+                if let Some(receipt) =
+                    env.get_persistent::<StorageKey, Receipt>(&StorageKey::Receipt(tx_id))
                 {
                     results.push_back(receipt);
                 }
@@ -688,12 +683,14 @@ impl TransactionReceiptContract {
         limit: u32,
         cursor: Option<u32>,
     ) -> soroban_sdk::Vec<Receipt> {
+        env.extend_instance_ttl();
+
         use soroban_sdk::Vec;
 
         let mut results = Vec::new(&env);
 
         let user_count_key = StorageKey::UserCount(user.clone());
-        let total_count: u32 = env.storage().persistent().get(&user_count_key).unwrap_or(0);
+        let total_count: u32 = env.get_persistent(&user_count_key).unwrap_or(0);
 
         let start_index = cursor.unwrap_or(0);
         let end_index = core::cmp::min(start_index + limit, total_count);
@@ -701,15 +698,9 @@ impl TransactionReceiptContract {
         for index in start_index..end_index {
             let user_index_key = StorageKey::UserIndex(user.clone(), index);
 
-            if let Some(tx_id) = env
-                .storage()
-                .persistent()
-                .get::<StorageKey, BytesN<32>>(&user_index_key)
-            {
-                if let Some(receipt) = env
-                    .storage()
-                    .persistent()
-                    .get::<StorageKey, Receipt>(&StorageKey::Receipt(tx_id))
+            if let Some(tx_id) = env.get_persistent::<StorageKey, BytesN<32>>(&user_index_key) {
+                if let Some(receipt) =
+                    env.get_persistent::<StorageKey, Receipt>(&StorageKey::Receipt(tx_id))
                 {
                     results.push_back(receipt);
                 }
@@ -928,6 +919,9 @@ fn generate_tx_id(
 }
 
 pub mod immutability_properties;
+
+#[cfg(test)]
+mod ttl_tests;
 
 #[cfg(test)]
 mod integration_tests;

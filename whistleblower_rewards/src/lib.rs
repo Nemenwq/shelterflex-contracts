@@ -135,19 +135,23 @@ fn require_string_max_len(s: &String) -> Result<(), ContractError> {
 }
 
 fn require_operator(env: &Env, caller: &Address) -> Result<(), ContractError> {
-    caller.require_auth();
-    if caller != &get_operator(env) {
-        return Err(ContractError::NotAuthorized);
-    }
-    Ok(())
+    soroban_access_control_core::require_admin_permission(
+        env,
+        &get_operator(env),
+        caller,
+        "operator",
+        ContractError::NotAuthorized,
+    )
 }
 
 fn require_admin(env: &Env, caller: &Address) -> Result<(), ContractError> {
-    caller.require_auth();
-    if caller != &get_admin(env) {
-        return Err(ContractError::NotAuthorized);
-    }
-    Ok(())
+    soroban_access_control_core::require_admin_permission(
+        env,
+        &get_admin(env),
+        caller,
+        "admin",
+        ContractError::NotAuthorized,
+    )
 }
 
 fn get_hold_window(env: &Env) -> u64 {
@@ -724,6 +728,9 @@ impl WhistleblowerRewards {
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod access_control_tests;
 
 #[cfg(test)]
 mod ttl_tests;

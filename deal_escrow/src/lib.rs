@@ -8,7 +8,6 @@ use soroban_sdk::{
 use soroban_storage_ttl::TtlStorage;
 
 // ── Storage keys ─────────────────────────────────────────────────────────────
-pub mod access_control;
 pub mod validation;
 
 #[contracttype]
@@ -476,8 +475,13 @@ impl DealEscrow {
         validation::require_non_empty_string(&env, &external_ref)?;
         let admin = get_admin(&env);
         let operator = get_operator(&env);
-        access_control::require_admin_or_operator_permission(
-            &env, &admin, &operator, &caller, "release",
+        soroban_access_control_core::require_admin_or_operator_permission(
+            &env,
+            &admin,
+            Some(&operator),
+            &caller,
+            "release",
+            ContractError::NotAuthorized,
         )?;
 
         if principal_amount < 0 || platform_amount < 0 || reporter_amount < 0 {
@@ -569,11 +573,12 @@ impl DealEscrow {
         env.extend_instance_ttl();
 
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(
+        soroban_access_control_core::require_admin_permission(
             &env,
             &current_admin,
             &admin,
             "configure_dispute_windows",
+            ContractError::NotAuthorized,
         )?;
         if challenge_window_seconds == 0 || dispute_timeout_seconds == 0 {
             return Err(ContractError::InvalidReleaseWindow);
@@ -598,7 +603,13 @@ impl DealEscrow {
         env.extend_instance_ttl();
 
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(&env, &current_admin, &admin, "set_resolver")?;
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &current_admin,
+            &admin,
+            "set_resolver",
+            ContractError::NotAuthorized,
+        )?;
         env.storage().instance().set(&DataKey::Resolver, &resolver);
         env.events().publish(
             (
@@ -619,11 +630,12 @@ impl DealEscrow {
         env.extend_instance_ttl();
 
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(
+        soroban_access_control_core::require_admin_permission(
             &env,
             &current_admin,
             &admin,
             "migrate_storage_schema",
+            ContractError::NotAuthorized,
         )?;
         let current = get_storage_schema_version(&env);
         if current == STORAGE_SCHEMA_V3 {
@@ -700,12 +712,13 @@ impl DealEscrow {
         validation::require_non_empty_string(&env, &external_ref)?;
         let admin = get_admin(&env);
         let operator = get_operator(&env);
-        access_control::require_admin_or_operator_permission(
+        soroban_access_control_core::require_admin_or_operator_permission(
             &env,
             &admin,
-            &operator,
+            Some(&operator),
             &caller,
             "request_rent_release",
+            ContractError::NotAuthorized,
         )?;
         if get_pending_release(&env, &deal_id).is_some() {
             return Err(ContractError::PendingReleaseExists);
@@ -907,7 +920,15 @@ impl Pausable for DealEscrow {
             .instance()
             .get(&DataKey::Admin)
             .expect("admin not set");
-        if access_control::require_admin_permission(&env, &stored, &_admin, "pause").is_err() {
+        if soroban_access_control_core::require_admin_permission(
+            &env,
+            &stored,
+            &_admin,
+            "pause",
+            ContractError::NotAuthorized,
+        )
+        .is_err()
+        {
             return Err(PausableError::NotAuthorized);
         }
         env.storage().instance().set(&DataKey::Paused, &true);
@@ -924,7 +945,15 @@ impl Pausable for DealEscrow {
             .instance()
             .get(&DataKey::Admin)
             .expect("admin not set");
-        if access_control::require_admin_permission(&env, &stored, &_admin, "unpause").is_err() {
+        if soroban_access_control_core::require_admin_permission(
+            &env,
+            &stored,
+            &_admin,
+            "unpause",
+            ContractError::NotAuthorized,
+        )
+        .is_err()
+        {
             return Err(PausableError::NotAuthorized);
         }
         env.storage().instance().set(&DataKey::Paused, &false);
@@ -950,7 +979,13 @@ impl DealEscrow {
         env.extend_instance_ttl();
 
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(&env, &current_admin, &admin, "set_guardian")?;
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &current_admin,
+            &admin,
+            "set_guardian",
+            ContractError::NotAuthorized,
+        )?;
         env.storage().instance().set(&DataKey::Guardian, &guardian);
         env.events().publish(
             (
@@ -970,11 +1005,12 @@ impl DealEscrow {
         env.extend_instance_ttl();
 
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(
+        soroban_access_control_core::require_admin_permission(
             &env,
             &current_admin,
             &admin,
             "set_upgrade_delay",
+            ContractError::NotAuthorized,
         )?;
         env.storage()
             .instance()
@@ -997,7 +1033,13 @@ impl DealEscrow {
         env.extend_instance_ttl();
 
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(&env, &current_admin, &admin, "propose_upgrade")?;
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &current_admin,
+            &admin,
+            "propose_upgrade",
+            ContractError::NotAuthorized,
+        )?;
         if env.storage().instance().has(&DataKey::PendingUpgradeHash) {
             return Err(ContractError::UpgradeAlreadyPending);
         }
@@ -1026,7 +1068,13 @@ impl DealEscrow {
         env.extend_instance_ttl();
 
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(&env, &current_admin, &admin, "execute_upgrade")?;
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &current_admin,
+            &admin,
+            "execute_upgrade",
+            ContractError::NotAuthorized,
+        )?;
         let pending: BytesN<32> = env
             .storage()
             .instance()
@@ -1078,11 +1126,12 @@ impl DealEscrow {
         env.extend_instance_ttl();
 
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(
+        soroban_access_control_core::require_admin_permission(
             &env,
             &current_admin,
             &admin,
             "emergency_upgrade",
+            ContractError::NotAuthorized,
         )?;
         if let Some(guardian) = env
             .storage()
@@ -1110,7 +1159,13 @@ impl DealEscrow {
         env.extend_instance_ttl();
 
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(&env, &current_admin, &admin, "cancel_upgrade")?;
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &current_admin,
+            &admin,
+            "cancel_upgrade",
+            ContractError::NotAuthorized,
+        )?;
         let hash: BytesN<32> = env
             .storage()
             .instance()
@@ -1140,7 +1195,13 @@ impl DealEscrow {
         env.extend_instance_ttl();
 
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(&env, &current_admin, &admin, "freeze")?;
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &current_admin,
+            &admin,
+            "freeze",
+            ContractError::NotAuthorized,
+        )?;
 
         let state = get_circuit_breaker_state(&env);
         if state == CircuitBreakerState::Frozen {
@@ -1174,7 +1235,13 @@ impl DealEscrow {
         env.extend_instance_ttl();
 
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(&env, &current_admin, &admin, "propose_drain")?;
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &current_admin,
+            &admin,
+            "propose_drain",
+            ContractError::NotAuthorized,
+        )?;
 
         let state = get_circuit_breaker_state(&env);
         if state != CircuitBreakerState::Frozen {
@@ -1205,7 +1272,13 @@ impl DealEscrow {
         env.extend_instance_ttl();
 
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(&env, &current_admin, &admin, "execute_drain")?;
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &current_admin,
+            &admin,
+            "execute_drain",
+            ContractError::NotAuthorized,
+        )?;
 
         let pending_hash = get_pending_drain_hash(&env).ok_or(ContractError::NoPendingRelease)?;
         if pending_hash != drain_hash {
@@ -1252,11 +1325,12 @@ impl DealEscrow {
         env.extend_instance_ttl();
 
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(
+        soroban_access_control_core::require_admin_permission(
             &env,
             &current_admin,
             &admin,
             "set_recovery_delay",
+            ContractError::NotAuthorized,
         )?;
 
         env.storage()
@@ -1294,7 +1368,13 @@ impl DealEscrow {
         require_not_paused(&env)?;
         validation::require_non_empty_string(&env, &deal_id)?;
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(&env, &current_admin, &admin, "activate_deal")?;
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &current_admin,
+            &admin,
+            "activate_deal",
+            ContractError::NotAuthorized,
+        )?;
 
         let current = Self::get_deal_lifecycle(&env, &deal_id);
         if current != DealLifecycleStatus::Draft {
@@ -1318,7 +1398,13 @@ impl DealEscrow {
         require_not_paused(&env)?;
         validation::require_non_empty_string(&env, &deal_id)?;
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(&env, &current_admin, &admin, "complete_deal")?;
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &current_admin,
+            &admin,
+            "complete_deal",
+            ContractError::NotAuthorized,
+        )?;
 
         let current = Self::get_deal_lifecycle(&env, &deal_id);
         if current != DealLifecycleStatus::Active {
@@ -1342,7 +1428,13 @@ impl DealEscrow {
         require_not_paused(&env)?;
         validation::require_non_empty_string(&env, &deal_id)?;
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(&env, &current_admin, &admin, "default_deal")?;
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &current_admin,
+            &admin,
+            "default_deal",
+            ContractError::NotAuthorized,
+        )?;
 
         let current = Self::get_deal_lifecycle(&env, &deal_id);
         if current != DealLifecycleStatus::Active {
@@ -1367,6 +1459,9 @@ impl DealEscrow {
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod access_control_tests;
 
 #[cfg(test)]
 mod ttl_tests;

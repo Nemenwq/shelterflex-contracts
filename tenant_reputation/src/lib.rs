@@ -4,8 +4,6 @@ use soroban_pausable_core::{Pausable, PausableError};
 use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, Symbol};
 use soroban_storage_ttl::TtlStorage;
 
-pub mod access_control;
-
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReputationRecord {
@@ -179,11 +177,12 @@ impl TenantReputation {
     ) -> Result<(), ContractError> {
         env.extend_instance_ttl();
 
-        access_control::require_admin_permission(
+        soroban_access_control_core::require_admin_permission(
             &env,
             &get_admin(&env),
             &admin,
             "set_decay_config",
+            ContractError::NotAuthorized,
         )?;
         env.storage()
             .instance()
@@ -210,11 +209,12 @@ impl TenantReputation {
     ) -> Result<(), ContractError> {
         env.extend_instance_ttl();
 
-        access_control::require_admin_permission(
+        soroban_access_control_core::require_admin_permission(
             &env,
             &get_admin(&env),
             &admin,
             "set_score_bounds",
+            ContractError::NotAuthorized,
         )?;
         env.storage().instance().set(&DataKey::ScoreMin, &score_min);
         env.storage().instance().set(&DataKey::ScoreMax, &score_max);
@@ -238,12 +238,13 @@ impl TenantReputation {
         env.extend_instance_ttl();
 
         require_not_paused(&env)?;
-        access_control::require_admin_or_operator_permission(
+        soroban_access_control_core::require_admin_or_operator_permission(
             &env,
             &get_admin(&env),
-            &get_operator(&env),
+            Some(&get_operator(&env)),
             &caller,
             "update_reputation",
+            ContractError::NotAuthorized,
         )?;
 
         let clamped_score = clamp_score(&env, record.composite_score);
@@ -297,11 +298,12 @@ impl TenantReputation {
     ) -> Result<(), ContractError> {
         env.extend_instance_ttl();
 
-        access_control::require_admin_permission(
+        soroban_access_control_core::require_admin_permission(
             &env,
             &get_admin(&env),
             &caller,
             "revoke_reputation",
+            ContractError::NotAuthorized,
         )?;
         if env.has_persistent(&DataKey::Reputation(tenant.clone())) {
             env.storage()
@@ -323,8 +325,14 @@ impl TenantReputation {
 #[contractimpl]
 impl Pausable for TenantReputation {
     fn pause(env: Env, admin: Address) -> Result<(), PausableError> {
-        access_control::require_admin_permission(&env, &get_admin(&env), &admin, "pause")
-            .map_err(|_| PausableError::NotAuthorized)?;
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &get_admin(&env),
+            &admin,
+            "pause",
+            ContractError::NotAuthorized,
+        )
+        .map_err(|_| PausableError::NotAuthorized)?;
         env.storage().instance().set(&DataKey::Paused, &true);
         env.events().publish(
             (Symbol::new(&env, "Pausable"), Symbol::new(&env, "pause")),
@@ -334,8 +342,14 @@ impl Pausable for TenantReputation {
     }
 
     fn unpause(env: Env, admin: Address) -> Result<(), PausableError> {
-        access_control::require_admin_permission(&env, &get_admin(&env), &admin, "unpause")
-            .map_err(|_| PausableError::NotAuthorized)?;
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &get_admin(&env),
+            &admin,
+            "unpause",
+            ContractError::NotAuthorized,
+        )
+        .map_err(|_| PausableError::NotAuthorized)?;
         env.storage().instance().set(&DataKey::Paused, &false);
         Ok(())
     }
@@ -347,6 +361,9 @@ impl Pausable for TenantReputation {
             .unwrap_or(false)
     }
 }
+
+#[cfg(test)]
+mod access_control_tests;
 
 #[cfg(test)]
 mod test {

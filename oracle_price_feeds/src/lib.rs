@@ -6,8 +6,6 @@ use soroban_sdk::{
 };
 use soroban_storage_ttl::TtlStorage;
 
-pub mod access_control;
-
 const DEFAULT_STALENESS_SECONDS: u64 = 600;
 const DEFAULT_MAX_DEVIATION_BPS: u64 = 500; // 5% in basis points
 const PRICE_DECIMALS: u32 = 7;
@@ -200,7 +198,13 @@ impl OraclePriceFeeds {
     ) -> Result<(), ContractError> {
         env.extend_instance_ttl();
 
-        access_control::require_admin_permission(&env, &get_admin(&env), &caller, "add_source")?;
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &get_admin(&env),
+            &caller,
+            "add_source",
+            ContractError::NotAuthorized,
+        )?;
         let mut sources: Vec<Address> = env
             .storage()
             .instance()
@@ -232,7 +236,13 @@ impl OraclePriceFeeds {
     ) -> Result<(), ContractError> {
         env.extend_instance_ttl();
 
-        access_control::require_admin_permission(&env, &get_admin(&env), &caller, "remove_source")?;
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &get_admin(&env),
+            &caller,
+            "remove_source",
+            ContractError::NotAuthorized,
+        )?;
         let sources: Vec<Address> = env
             .storage()
             .instance()
@@ -268,7 +278,13 @@ impl OraclePriceFeeds {
     ) -> Result<(), ContractError> {
         env.extend_instance_ttl();
 
-        access_control::require_admin_permission(&env, &get_admin(&env), &caller, "set_quorum")?;
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &get_admin(&env),
+            &caller,
+            "set_quorum",
+            ContractError::NotAuthorized,
+        )?;
         env.storage()
             .instance()
             .set(&DataKey::Quorum(pair), &quorum);
@@ -309,12 +325,13 @@ impl OraclePriceFeeds {
 
         if sources.is_empty() {
             // Legacy single-source mode: admin or operator
-            access_control::require_admin_or_operator_permission(
+            soroban_access_control_core::require_admin_or_operator_permission(
                 &env,
                 &get_admin(&env),
-                &get_operator(&env),
+                Some(&get_operator(&env)),
                 &caller,
                 "update_price",
+                ContractError::NotAuthorized,
             )?;
         } else {
             // Multi-source mode: caller must be a registered source
@@ -556,11 +573,12 @@ impl OraclePriceFeeds {
     ) -> Result<(), ContractError> {
         env.extend_instance_ttl();
 
-        access_control::require_admin_permission(
+        soroban_access_control_core::require_admin_permission(
             &env,
             &get_admin(&env),
             &caller,
             "set_staleness_threshold",
+            ContractError::NotAuthorized,
         )?;
         env.storage()
             .instance()
@@ -575,11 +593,12 @@ impl OraclePriceFeeds {
     ) -> Result<(), ContractError> {
         env.extend_instance_ttl();
 
-        access_control::require_admin_permission(
+        soroban_access_control_core::require_admin_permission(
             &env,
             &get_admin(&env),
             &caller,
             "set_max_deviation_bps",
+            ContractError::NotAuthorized,
         )?;
         env.storage()
             .instance()
@@ -633,6 +652,9 @@ impl OraclePriceFeeds {
         weighted_sum / total_time as i128
     }
 }
+
+#[cfg(test)]
+mod access_control_tests;
 
 #[cfg(test)]
 mod test {

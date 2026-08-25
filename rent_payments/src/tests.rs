@@ -387,3 +387,83 @@ fn test_invalid_limit_too_large() {
         .unwrap();
     assert_eq!(err, ContractError::InvalidLimit);
 }
+
+// ── Authorization boundary (Issue #18) ───────────────────────────────────────
+
+/// `create_receipt` and `pause`/`unpause` are the gated entry points. The first
+/// takes no caller argument, so the gate is the host-level auth requirement on
+/// the stored admin: a transaction signed by anyone else is rejected before the
+/// body runs.
+#[test]
+fn non_admin_rejected_on_create_receipt() {
+    let env = Env::default();
+    let (_admin, client, contract_id) = setup(&env);
+    let attacker = Address::generate(&env);
+    let deal_id = 1u64;
+    let amount = 1_000i128;
+    let reference = generate_reference(&env, 99);
+
+    env.mock_auths(&[MockAuth {
+        address: &attacker,
+        invoke: &MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "create_receipt",
+            args: (deal_id, amount, attacker.clone(), reference.clone()).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+
+    let result = client.try_create_receipt(&deal_id, &amount, &attacker, &reference);
+    assert!(
+        result.is_err(),
+        "create_receipt must reject a caller that is not the stored admin"
+    );
+
+    // Nothing was written.
+    let page = client.list_receipts_by_deal(&deal_id, &10u32, &None);
+    assert_eq!(page.receipts.len(), 0);
+}
+
+/// `pause` and `unpause` do take a caller, so they are gated by the shared
+/// admin comparison and return `NotAuthorized` rather than panicking.
+#[test]
+fn non_admin_rejected_on_pause_and_unpause() {
+    let env = Env::default();
+    let (admin, client, contract_id) = setup(&env);
+    let attacker = Address::generate(&env);
+
+    env.mock_auths(&[MockAuth {
+        address: &attacker,
+        invoke: &MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "pause",
+            args: (attacker.clone(),).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert_eq!(
+        client.try_pause(&attacker).unwrap_err().unwrap(),
+        soroban_pausable_core::PausableError::NotAuthorized,
+        "pause must reject a non-admin"
+    );
+    assert!(!client.is_paused());
+
+    env.mock_all_auths();
+    client.pause(&admin);
+
+    env.mock_auths(&[MockAuth {
+        address: &attacker,
+        invoke: &MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "unpause",
+            args: (attacker.clone(),).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert_eq!(
+        client.try_unpause(&attacker).unwrap_err().unwrap(),
+        soroban_pausable_core::PausableError::NotAuthorized,
+        "unpause must reject a non-admin"
+    );
+    assert!(client.is_paused());
+}

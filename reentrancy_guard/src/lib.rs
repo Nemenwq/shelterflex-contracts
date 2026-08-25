@@ -5,8 +5,6 @@ use soroban_sdk::{
 };
 use soroban_storage_ttl::TtlStorage;
 
-pub mod access_control;
-
 #[cfg(test)]
 mod tests;
 
@@ -45,12 +43,6 @@ pub enum ContractError {
     GuardNotActive = 8,
     InvalidMaxDepth = 9,
     InvalidExit = 10,
-}
-
-impl From<access_control::AccessControlError> for ContractError {
-    fn from(_err: access_control::AccessControlError) -> Self {
-        ContractError::NotAuthorized
-    }
 }
 
 #[contract]
@@ -143,7 +135,13 @@ impl ReentrancyGuard {
         env.extend_instance_ttl();
 
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(&env, &current_admin, &admin, "set_admin")?;
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &current_admin,
+            &admin,
+            "set_admin",
+            ContractError::NotAuthorized,
+        )?;
 
         env.storage().instance().set(&DataKey::Admin, &new_admin);
 
@@ -165,11 +163,12 @@ impl ReentrancyGuard {
         env.extend_instance_ttl();
 
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(
+        soroban_access_control_core::require_admin_permission(
             &env,
             &current_admin,
             &admin,
             "set_max_call_depth",
+            ContractError::NotAuthorized,
         )?;
 
         if max_depth == 0 || max_depth > 20 {
@@ -199,7 +198,13 @@ impl ReentrancyGuard {
         env.extend_instance_ttl();
 
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(&env, &current_admin, &admin, "activate_guard")?;
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &current_admin,
+            &admin,
+            "activate_guard",
+            ContractError::NotAuthorized,
+        )?;
 
         env.storage()
             .instance()
@@ -224,7 +229,13 @@ impl ReentrancyGuard {
         env.extend_instance_ttl();
 
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(&env, &current_admin, &admin, "deactivate_guard")?;
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &current_admin,
+            &admin,
+            "deactivate_guard",
+            ContractError::NotAuthorized,
+        )?;
 
         env.storage()
             .instance()
@@ -249,7 +260,13 @@ impl ReentrancyGuard {
         env.extend_instance_ttl();
 
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(&env, &current_admin, &admin, "allow_pattern")?;
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &current_admin,
+            &admin,
+            "allow_pattern",
+            ContractError::NotAuthorized,
+        )?;
 
         if is_pattern_allowed(&env, &pattern_hash) {
             return Err(ContractError::PatternAlreadyAllowed);
@@ -278,7 +295,13 @@ impl ReentrancyGuard {
         env.extend_instance_ttl();
 
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(&env, &current_admin, &admin, "disallow_pattern")?;
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &current_admin,
+            &admin,
+            "disallow_pattern",
+            ContractError::NotAuthorized,
+        )?;
 
         env.storage()
             .instance()

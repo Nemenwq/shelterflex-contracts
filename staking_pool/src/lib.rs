@@ -1,6 +1,9 @@
 #![no_std]
 
 #[cfg(test)]
+mod access_control_tests;
+
+#[cfg(test)]
 mod ttl_tests;
 
 #[cfg(test)]
@@ -14,7 +17,6 @@ use soroban_sdk::{
 use soroban_storage_ttl::TtlStorage;
 // Map is still used in ReceiptInput.metadata
 
-pub mod access_control;
 pub mod validation;
 
 #[cfg(kani)]
@@ -428,7 +430,13 @@ impl StakingPool {
         env.extend_instance_ttl();
 
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(&env, &current_admin, &admin, "set_operator")?;
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &current_admin,
+            &admin,
+            "set_operator",
+            ContractError::NotAuthorized,
+        )?;
 
         let old_operator: Option<Address> = get_operator(&env);
         env.storage()
@@ -450,7 +458,13 @@ impl StakingPool {
         env.extend_instance_ttl();
 
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(&env, &current_admin, &admin, "set_admin")?;
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &current_admin,
+            &admin,
+            "set_admin",
+            ContractError::NotAuthorized,
+        )?;
 
         env.storage().instance().set(&DataKey::Admin, &new_admin);
 
@@ -618,7 +632,13 @@ impl StakingPool {
         env.extend_instance_ttl();
 
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(&env, &current_admin, &admin, "set_lock_period")?;
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &current_admin,
+            &admin,
+            "set_lock_period",
+            ContractError::NotAuthorized,
+        )?;
         validation::require_valid_lock_period(seconds)?;
         put_lock_period(&env, seconds);
         env.events().publish(
@@ -643,7 +663,13 @@ impl StakingPool {
         env.extend_instance_ttl();
 
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(&env, &current_admin, &admin, "set_guardian")?;
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &current_admin,
+            &admin,
+            "set_guardian",
+            ContractError::NotAuthorized,
+        )?;
         env.storage().instance().set(&DataKey::Guardian, &guardian);
         env.events().publish(
             (
@@ -663,11 +689,12 @@ impl StakingPool {
         env.extend_instance_ttl();
 
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(
+        soroban_access_control_core::require_admin_permission(
             &env,
             &current_admin,
             &admin,
             "set_upgrade_delay",
+            ContractError::NotAuthorized,
         )?;
         env.storage()
             .instance()
@@ -691,7 +718,13 @@ impl StakingPool {
         env.extend_instance_ttl();
 
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(&env, &current_admin, &admin, "propose_upgrade")?;
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &current_admin,
+            &admin,
+            "propose_upgrade",
+            ContractError::NotAuthorized,
+        )?;
         if env.storage().instance().has(&DataKey::PendingUpgradeHash) {
             return Err(ContractError::UpgradeAlreadyPending);
         }
@@ -725,7 +758,13 @@ impl StakingPool {
         env.extend_instance_ttl();
 
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(&env, &current_admin, &admin, "execute_upgrade")?;
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &current_admin,
+            &admin,
+            "execute_upgrade",
+            ContractError::NotAuthorized,
+        )?;
         let pending: BytesN<32> = env
             .storage()
             .instance()
@@ -794,11 +833,12 @@ impl StakingPool {
         env.extend_instance_ttl();
 
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(
+        soroban_access_control_core::require_admin_permission(
             &env,
             &current_admin,
             &admin,
             "emergency_upgrade",
+            ContractError::NotAuthorized,
         )?;
 
         validate_upgrade_safety(&env, new_version)?;
@@ -842,7 +882,13 @@ impl StakingPool {
         env.extend_instance_ttl();
 
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(&env, &current_admin, &admin, "cancel_upgrade")?;
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &current_admin,
+            &admin,
+            "cancel_upgrade",
+            ContractError::NotAuthorized,
+        )?;
         let hash: BytesN<32> = env
             .storage()
             .instance()
@@ -922,7 +968,14 @@ impl StakingPool {
 impl Pausable for StakingPool {
     fn pause(env: Env, admin: Address) -> Result<(), PausableError> {
         let current_admin = get_admin(&env);
-        if access_control::require_admin_permission(&env, &current_admin, &admin, "pause").is_err()
+        if soroban_access_control_core::require_admin_permission(
+            &env,
+            &current_admin,
+            &admin,
+            "pause",
+            ContractError::NotAuthorized,
+        )
+        .is_err()
         {
             return Err(PausableError::NotAuthorized);
         }
@@ -936,8 +989,14 @@ impl Pausable for StakingPool {
 
     fn unpause(env: Env, admin: Address) -> Result<(), PausableError> {
         let current_admin = get_admin(&env);
-        if access_control::require_admin_permission(&env, &current_admin, &admin, "unpause")
-            .is_err()
+        if soroban_access_control_core::require_admin_permission(
+            &env,
+            &current_admin,
+            &admin,
+            "unpause",
+            ContractError::NotAuthorized,
+        )
+        .is_err()
         {
             return Err(PausableError::NotAuthorized);
         }

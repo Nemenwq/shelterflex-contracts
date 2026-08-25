@@ -313,3 +313,85 @@ fn max_depth_exceeded_returns_error() {
         .unwrap();
     assert_eq!(err, ContractError::MaxDepthExceeded);
 }
+
+// ── Authorization boundary (Issue #18) ───────────────────────────────────────
+
+/// Every admin-gated entry point must reject a non-admin caller.
+#[test]
+fn non_admin_rejected_on_every_admin_gated_entry_point() {
+    let env = Env::default();
+    let (client, _admin) = setup_contract(&env);
+    let attacker = Address::generate(&env);
+    let target = Address::generate(&env);
+    let pattern = create_entry_point(&env, "pattern");
+
+    assert_eq!(
+        client
+            .try_set_admin(&attacker, &attacker)
+            .unwrap_err()
+            .unwrap(),
+        ContractError::NotAuthorized,
+        "set_admin must reject a non-admin"
+    );
+
+    assert_eq!(
+        client
+            .try_set_max_call_depth(&attacker, &5)
+            .unwrap_err()
+            .unwrap(),
+        ContractError::NotAuthorized,
+        "set_max_call_depth must reject a non-admin"
+    );
+
+    assert_eq!(
+        client
+            .try_activate_guard(&attacker, &target)
+            .unwrap_err()
+            .unwrap(),
+        ContractError::NotAuthorized,
+        "activate_guard must reject a non-admin"
+    );
+
+    assert_eq!(
+        client
+            .try_deactivate_guard(&attacker, &target)
+            .unwrap_err()
+            .unwrap(),
+        ContractError::NotAuthorized,
+        "deactivate_guard must reject a non-admin"
+    );
+
+    assert_eq!(
+        client
+            .try_allow_pattern(&attacker, &pattern)
+            .unwrap_err()
+            .unwrap(),
+        ContractError::NotAuthorized,
+        "allow_pattern must reject a non-admin"
+    );
+
+    assert_eq!(
+        client
+            .try_disallow_pattern(&attacker, &pattern)
+            .unwrap_err()
+            .unwrap(),
+        ContractError::NotAuthorized,
+        "disallow_pattern must reject a non-admin"
+    );
+}
+
+/// A rejected call must leave the guard configuration untouched.
+#[test]
+fn rejected_admin_call_does_not_change_state() {
+    let env = Env::default();
+    let (client, _admin) = setup_contract(&env);
+    let attacker = Address::generate(&env);
+    let target = Address::generate(&env);
+
+    let depth_before = client.get_max_call_depth();
+    let _ = client.try_set_max_call_depth(&attacker, &7);
+    let _ = client.try_activate_guard(&attacker, &target);
+
+    assert_eq!(client.get_max_call_depth(), depth_before);
+    assert!(!client.is_guard_active(&target));
+}

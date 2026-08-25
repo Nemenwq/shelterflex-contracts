@@ -89,9 +89,14 @@ fn get_admin(env: &Env) -> Address {
         .expect("admin not set")
 }
 
+/// Admin gate for entry points that take no caller argument.
+///
+/// See `soroban_access_control_core::require_admin_auth`: with no caller to
+/// compare against, the guard is the host-level auth requirement on the stored
+/// admin. Widening this to the caller-passing `require_admin_permission` would
+/// change the entry-point ABI, so it is left to a maintainer decision.
 fn require_admin(env: &Env) -> Result<(), ContractError> {
-    let admin = get_admin(env);
-    admin.require_auth();
+    soroban_access_control_core::require_admin_auth(&get_admin(env));
     Ok(())
 }
 
@@ -440,11 +445,13 @@ impl RentPayments {
 #[contractimpl]
 impl Pausable for RentPayments {
     fn pause(env: Env, admin: Address) -> Result<(), PausableError> {
-        admin.require_auth();
-        let stored = get_admin(&env);
-        if admin != stored {
-            return Err(PausableError::NotAuthorized);
-        }
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &get_admin(&env),
+            &admin,
+            "pause",
+            PausableError::NotAuthorized,
+        )?;
         env.storage().instance().set(&DataKey::Paused, &true);
         env.events().publish(
             (Symbol::new(&env, "Pausable"), Symbol::new(&env, "pause")),
@@ -454,11 +461,13 @@ impl Pausable for RentPayments {
     }
 
     fn unpause(env: Env, admin: Address) -> Result<(), PausableError> {
-        admin.require_auth();
-        let stored = get_admin(&env);
-        if admin != stored {
-            return Err(PausableError::NotAuthorized);
-        }
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &get_admin(&env),
+            &admin,
+            "unpause",
+            PausableError::NotAuthorized,
+        )?;
         env.storage().instance().set(&DataKey::Paused, &false);
         env.events().publish(
             (Symbol::new(&env, "Pausable"), Symbol::new(&env, "unpause")),

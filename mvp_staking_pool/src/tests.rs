@@ -250,3 +250,133 @@ fn unstake_emits_event() {
     // The event structure in soroban SDK is complex, so we just check events exist
     assert!(events.len() >= 1);
 }
+
+// ── Authorization boundary (Issue #18) ───────────────────────────────────────
+
+/// Every entry point that takes an explicit `admin` argument is gated by the
+/// shared admin comparison and must reject a non-admin caller.
+#[test]
+fn non_admin_rejected_on_every_admin_gated_entry_point() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_contract_id, client, _admin, _user, _token) = setup_contract(&env);
+
+    let attacker = Address::generate(&env);
+    let user = Address::generate(&env);
+    let hash = soroban_sdk::BytesN::from_array(&env, &[8u8; 32]);
+
+    assert_eq!(
+        client
+            .try_utilize_stake(&attacker, &user, &100)
+            .unwrap_err()
+            .unwrap(),
+        ContractError::NotAuthorized,
+        "utilize_stake must reject a non-admin"
+    );
+
+    assert_eq!(
+        client
+            .try_set_guardian(&attacker, &attacker)
+            .unwrap_err()
+            .unwrap(),
+        ContractError::NotAuthorized,
+        "set_guardian must reject a non-admin"
+    );
+
+    assert_eq!(
+        client
+            .try_set_upgrade_delay(&attacker, &100)
+            .unwrap_err()
+            .unwrap(),
+        ContractError::NotAuthorized,
+        "set_upgrade_delay must reject a non-admin"
+    );
+
+    assert_eq!(
+        client
+            .try_propose_upgrade(&attacker, &hash)
+            .unwrap_err()
+            .unwrap(),
+        ContractError::NotAuthorized,
+        "propose_upgrade must reject a non-admin"
+    );
+
+    assert_eq!(
+        client.try_execute_upgrade(&attacker).unwrap_err().unwrap(),
+        ContractError::NotAuthorized,
+        "execute_upgrade must reject a non-admin"
+    );
+
+    assert_eq!(
+        client
+            .try_emergency_upgrade(&attacker, &hash)
+            .unwrap_err()
+            .unwrap(),
+        ContractError::NotAuthorized,
+        "emergency_upgrade must reject a non-admin"
+    );
+
+    assert_eq!(
+        client.try_cancel_upgrade(&attacker).unwrap_err().unwrap(),
+        ContractError::NotAuthorized,
+        "cancel_upgrade must reject a non-admin"
+    );
+
+    assert_eq!(
+        client.try_pause(&attacker).unwrap_err().unwrap(),
+        soroban_pausable_core::PausableError::NotAuthorized,
+        "pause must reject a non-admin"
+    );
+}
+
+/// `fund_rewards` takes no caller argument, so the gate is the host-level auth
+/// requirement on the stored admin: a transaction signed by anyone else is
+/// rejected before the body runs.
+#[test]
+fn non_admin_rejected_on_fund_rewards() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (contract_id, client, _admin, _user, token_id) = setup_contract(&env);
+    let attacker = Address::generate(&env);
+
+    let asset = StellarAssetClient::new(&env, &token_id);
+    asset.mint(&attacker, &1_000i128);
+
+    env.mock_auths(&[MockAuth {
+        address: &attacker,
+        invoke: &MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "fund_rewards",
+            args: (attacker.clone(), 100i128).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+
+    let result = client.try_fund_rewards(&attacker, &100i128);
+    assert!(
+        result.is_err(),
+        "fund_rewards must reject a caller that is not the stored admin"
+    );
+}
+
+/// A rejected admin call must leave the guardian and upgrade delay untouched.
+#[test]
+fn rejected_admin_call_does_not_change_config() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_contract_id, client, admin, _user, _token) = setup_contract(&env);
+
+    let attacker = Address::generate(&env);
+    client.set_upgrade_delay(&admin, &600);
+
+    let result = client.try_set_upgrade_delay(&attacker, &0);
+    assert_eq!(result.unwrap_err().unwrap(), ContractError::NotAuthorized);
+
+    // The admin's own value still applies: a proposal is still delay-gated.
+    let hash = soroban_sdk::BytesN::from_array(&env, &[9u8; 32]);
+    client.propose_upgrade(&admin, &hash);
+    assert!(
+        client.try_execute_upgrade(&admin).is_err(),
+        "the attacker must not have been able to zero out the upgrade delay"
+    );
+}

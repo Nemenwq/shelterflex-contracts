@@ -134,11 +134,13 @@ fn require_not_paused(env: &Env) -> Result<(), ContractError> {
 }
 
 fn require_admin(env: &Env, caller: &Address) -> Result<(), ContractError> {
-    caller.require_auth();
-    if caller != &get_admin(env) {
-        return Err(ContractError::NotAuthorized);
-    }
-    Ok(())
+    soroban_access_control_core::require_admin_permission(
+        env,
+        &get_admin(env),
+        caller,
+        "admin",
+        ContractError::NotAuthorized,
+    )
 }
 
 /// Scope guard that ensures the reentrancy lock is released on drop.
@@ -575,6 +577,9 @@ impl InspectorBondContract {
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod access_control_tests;
 
 #[cfg(test)]
 mod tests {

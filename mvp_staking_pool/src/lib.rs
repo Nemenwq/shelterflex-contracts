@@ -99,9 +99,14 @@ fn is_paused(env: &Env) -> bool {
         .unwrap_or(false)
 }
 
+/// Admin gate for entry points that take no caller argument.
+///
+/// See `soroban_access_control_core::require_admin_auth`: with no caller to
+/// compare against, the guard is the host-level auth requirement on the stored
+/// admin. Widening this to the caller-passing `require_admin_permission` would
+/// change the entry-point ABI, so it is left to a maintainer decision.
 fn require_admin(env: &Env) {
-    let admin = get_admin(env);
-    admin.require_auth();
+    soroban_access_control_core::require_admin_auth(&get_admin(env));
 }
 
 fn require_not_paused(env: &Env) {
@@ -335,10 +340,13 @@ impl StakingPool {
     ) -> Result<(), ContractError> {
         env.extend_instance_ttl();
 
-        admin.require_auth();
-        if admin != get_admin(&env) {
-            return Err(ContractError::NotAuthorized);
-        }
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &get_admin(&env),
+            &admin,
+            "utilize_stake",
+            ContractError::NotAuthorized,
+        )?;
         require_not_paused(&env);
         require_positive_amount(amount);
 
@@ -458,10 +466,13 @@ impl StakingPool {
     pub fn set_guardian(env: Env, admin: Address, guardian: Address) -> Result<(), ContractError> {
         env.extend_instance_ttl();
 
-        admin.require_auth();
-        if admin != get_admin(&env) {
-            return Err(ContractError::NotAuthorized);
-        }
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &get_admin(&env),
+            &admin,
+            "set_guardian",
+            ContractError::NotAuthorized,
+        )?;
         env.storage().instance().set(&DataKey::Guardian, &guardian);
         env.events().publish(
             (
@@ -476,10 +487,13 @@ impl StakingPool {
     pub fn set_upgrade_delay(env: Env, admin: Address, delay: u64) -> Result<(), ContractError> {
         env.extend_instance_ttl();
 
-        admin.require_auth();
-        if admin != get_admin(&env) {
-            return Err(ContractError::NotAuthorized);
-        }
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &get_admin(&env),
+            &admin,
+            "set_upgrade_delay",
+            ContractError::NotAuthorized,
+        )?;
         env.storage().instance().set(&DataKey::UpgradeDelay, &delay);
         env.events().publish(
             (
@@ -498,10 +512,13 @@ impl StakingPool {
     ) -> Result<(), ContractError> {
         env.extend_instance_ttl();
 
-        admin.require_auth();
-        if admin != get_admin(&env) {
-            return Err(ContractError::NotAuthorized);
-        }
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &get_admin(&env),
+            &admin,
+            "propose_upgrade",
+            ContractError::NotAuthorized,
+        )?;
         if env.storage().instance().has(&DataKey::PendingUpgradeHash) {
             return Err(ContractError::UpgradeAlreadyPending);
         }
@@ -530,10 +547,13 @@ impl StakingPool {
     pub fn execute_upgrade(env: Env, admin: Address) -> Result<(), ContractError> {
         env.extend_instance_ttl();
 
-        admin.require_auth();
-        if admin != get_admin(&env) {
-            return Err(ContractError::NotAuthorized);
-        }
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &get_admin(&env),
+            &admin,
+            "execute_upgrade",
+            ContractError::NotAuthorized,
+        )?;
         let hash = env
             .storage()
             .instance()
@@ -569,10 +589,13 @@ impl StakingPool {
     ) -> Result<(), ContractError> {
         env.extend_instance_ttl();
 
-        admin.require_auth();
-        if admin != get_admin(&env) {
-            return Err(ContractError::NotAuthorized);
-        }
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &get_admin(&env),
+            &admin,
+            "emergency_upgrade",
+            ContractError::NotAuthorized,
+        )?;
         if let Some(guardian) = env
             .storage()
             .instance()
@@ -598,10 +621,13 @@ impl StakingPool {
     pub fn cancel_upgrade(env: Env, admin: Address) -> Result<(), ContractError> {
         env.extend_instance_ttl();
 
-        admin.require_auth();
-        if admin != get_admin(&env) {
-            return Err(ContractError::NotAuthorized);
-        }
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &get_admin(&env),
+            &admin,
+            "cancel_upgrade",
+            ContractError::NotAuthorized,
+        )?;
         if !env.storage().instance().has(&DataKey::PendingUpgradeHash) {
             return Err(ContractError::NoUpgradePending);
         }
@@ -623,11 +649,13 @@ impl StakingPool {
 #[contractimpl]
 impl Pausable for StakingPool {
     fn pause(env: Env, admin: Address) -> Result<(), PausableError> {
-        admin.require_auth();
-        let stored = get_admin(&env);
-        if admin != stored {
-            return Err(PausableError::NotAuthorized);
-        }
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &get_admin(&env),
+            &admin,
+            "pause",
+            PausableError::NotAuthorized,
+        )?;
         env.storage().instance().set(&DataKey::Paused, &true);
         env.events().publish(
             (Symbol::new(&env, "Pausable"), Symbol::new(&env, "pause")),
@@ -637,11 +665,13 @@ impl Pausable for StakingPool {
     }
 
     fn unpause(env: Env, admin: Address) -> Result<(), PausableError> {
-        admin.require_auth();
-        let stored = get_admin(&env);
-        if admin != stored {
-            return Err(PausableError::NotAuthorized);
-        }
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &get_admin(&env),
+            &admin,
+            "unpause",
+            PausableError::NotAuthorized,
+        )?;
         env.storage().instance().set(&DataKey::Paused, &false);
         env.events().publish(
             (Symbol::new(&env, "Pausable"), Symbol::new(&env, "unpause")),

@@ -1,12 +1,12 @@
 #![no_std]
 
+use soroban_pausable_core::{Pausable, PausableError};
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, symbol_short, token, Address, BytesN, Env,
     IntoVal, String, Symbol, Vec,
 };
 use soroban_storage_ttl::TtlStorage;
 
-pub mod access_control;
 mod formal_properties;
 
 #[contracttype]
@@ -91,12 +91,6 @@ pub struct OraclePrice {
     pub price: i128,
     /// Ledger timestamp when the oracle set this price.
     pub timestamp: u64,
-}
-
-impl From<access_control::AccessControlError> for ContractError {
-    fn from(_err: access_control::AccessControlError) -> Self {
-        ContractError::NotAuthorized
-    }
 }
 
 #[contract]
@@ -266,7 +260,13 @@ impl BondCollateral {
 
         require_not_paused(&env)?;
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(&env, &current_admin, &admin, "set_admin")?;
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &current_admin,
+            &admin,
+            "set_admin",
+            ContractError::NotAuthorized,
+        )?;
 
         env.storage().instance().set(&DataKey::Admin, &new_admin);
 
@@ -290,7 +290,13 @@ impl BondCollateral {
 
         require_not_paused(&env)?;
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(&env, &current_admin, &admin, "set_thresholds")?;
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &current_admin,
+            &admin,
+            "set_thresholds",
+            ContractError::NotAuthorized,
+        )?;
 
         if warning <= liquidation || liquidation < 100 {
             return Err(ContractError::InvalidThreshold);
@@ -323,11 +329,12 @@ impl BondCollateral {
 
         require_not_paused(&env)?;
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(
+        soroban_access_control_core::require_admin_permission(
             &env,
             &current_admin,
             &admin,
             "set_keeper_reward_cap",
+            ContractError::NotAuthorized,
         )?;
 
         if cap_bps > 5000 {
@@ -1027,12 +1034,20 @@ impl BondCollateral {
         );
         Ok(())
     }
+}
 
-    /// Pause the contract. Admin-only.
-    pub fn pause(env: Env, admin: Address) -> Result<(), ContractError> {
+#[contractimpl]
+impl Pausable for BondCollateral {
+    /// Pause the contract. Admin-only, via the shared admin gate.
+    ///
+    /// While paused, every state-mutating entry point returns
+    /// `ContractError::Paused`; the read-only getters keep working.
+    fn pause(env: Env, admin: Address) -> Result<(), PausableError> {
         env.extend_instance_ttl();
 
-        require_admin(&env, &admin)?;
+        if require_admin(&env, &admin).is_err() {
+            return Err(PausableError::NotAuthorized);
+        }
         env.storage().instance().set(&DataKey::Paused, &true);
         env.events().publish(
             (Symbol::new(&env, "bond"), Symbol::new(&env, "paused")),
@@ -1041,11 +1056,13 @@ impl BondCollateral {
         Ok(())
     }
 
-    /// Unpause the contract. Admin-only.
-    pub fn unpause(env: Env, admin: Address) -> Result<(), ContractError> {
+    /// Unpause the contract. Admin-only, via the shared admin gate.
+    fn unpause(env: Env, admin: Address) -> Result<(), PausableError> {
         env.extend_instance_ttl();
 
-        require_admin(&env, &admin)?;
+        if require_admin(&env, &admin).is_err() {
+            return Err(PausableError::NotAuthorized);
+        }
         env.storage().instance().set(&DataKey::Paused, &false);
         env.events().publish(
             (Symbol::new(&env, "bond"), Symbol::new(&env, "unpaused")),
@@ -1055,13 +1072,10 @@ impl BondCollateral {
     }
 
     /// True iff the contract is currently paused.
-    pub fn is_paused(env: Env) -> bool {
+    fn is_paused(env: Env) -> bool {
         env.extend_instance_ttl();
 
-        env.storage()
-            .instance()
-            .get::<_, bool>(&DataKey::Paused)
-            .unwrap_or(false)
+        get_paused_state(&env)
     }
 }
 
@@ -1078,38 +1092,46 @@ fn get_inspector_locks(env: &Env, inspector: &Address) -> Vec<String> {
 }
 
 fn require_admin(env: &Env, caller: &Address) -> Result<(), ContractError> {
-    caller.require_auth();
-    let admin = get_admin(env);
-    if caller != &admin {
-        return Err(ContractError::NotAuthorized);
-    }
-    Ok(())
+    soroban_access_control_core::require_admin_permission(
+        env,
+        &get_admin(env),
+        caller,
+        "admin",
+        ContractError::NotAuthorized,
+    )
 }
 
-fn require_not_paused(env: &Env) -> Result<(), ContractError> {
-    if env
-        .storage()
+fn get_paused_state(env: &Env) -> bool {
+    env.storage()
         .instance()
         .get::<_, bool>(&DataKey::Paused)
         .unwrap_or(false)
-    {
+}
+
+fn require_not_paused(env: &Env) -> Result<(), ContractError> {
+    if get_paused_state(env) {
         return Err(ContractError::Paused);
     }
     Ok(())
 }
 
 fn require_operator(env: &Env, caller: &Address) -> Result<(), ContractError> {
-    caller.require_auth();
     let operator: Address = env
         .storage()
         .instance()
         .get(&DataKey::Operator)
         .ok_or(ContractError::NotAuthorized)?;
-    if caller != &operator {
-        return Err(ContractError::NotAuthorized);
-    }
-    Ok(())
+    soroban_access_control_core::require_admin_permission(
+        env,
+        &operator,
+        caller,
+        "operator",
+        ContractError::NotAuthorized,
+    )
 }
+
+#[cfg(test)]
+mod access_control_tests;
 
 #[cfg(test)]
 mod ttl_tests;
@@ -1458,7 +1480,7 @@ mod inspector_bond_tests {
         let attacker = Address::generate(&s.env);
 
         let result = s.bond.try_pause(&attacker);
-        assert_eq!(result, Err(Ok(ContractError::NotAuthorized)));
+        assert_eq!(result, Err(Ok(PausableError::NotAuthorized)));
     }
 
     #[test]
@@ -1468,7 +1490,7 @@ mod inspector_bond_tests {
 
         s.bond.pause(&s.admin);
         let result = s.bond.try_unpause(&attacker);
-        assert_eq!(result, Err(Ok(ContractError::NotAuthorized)));
+        assert_eq!(result, Err(Ok(PausableError::NotAuthorized)));
     }
 
     #[test]

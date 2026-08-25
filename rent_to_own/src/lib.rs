@@ -1,5 +1,6 @@
 #![no_std]
 
+use soroban_pausable_core::{Pausable, PausableError};
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, Address, BytesN, Env, Symbol,
 };
@@ -11,6 +12,8 @@ use soroban_storage_ttl::TtlStorage;
 #[derive(Clone)]
 pub enum DataKey {
     Admin,
+    /// Emergency-brake flag; set by `pause`, cleared by `unpause`.
+    Paused,
     Deal(BytesN<32>),
     Payment(BytesN<32>, u32),
     /// Forfeiture fraction in basis points (0–10000) applied on default
@@ -39,6 +42,8 @@ pub enum ContractError {
     SettlementNotFound = 11,
     // ── Issue #1251 ──────────────────────────────────────────────────────────
     InvalidTransfer = 12,
+    /// State-mutating call attempted while the contract is paused.
+    Paused = 13,
 }
 
 // ── Data Structures ───────────────────────────────────────────────────────────
@@ -100,9 +105,25 @@ fn get_admin(env: &Env) -> Address {
 }
 
 fn require_admin(env: &Env, caller: &Address) -> Result<(), ContractError> {
-    caller.require_auth();
-    if caller != &get_admin(env) {
-        return Err(ContractError::NotAuthorized);
+    soroban_access_control_core::require_admin_permission(
+        env,
+        &get_admin(env),
+        caller,
+        "admin",
+        ContractError::NotAuthorized,
+    )
+}
+
+fn get_paused_state(env: &Env) -> bool {
+    env.storage()
+        .instance()
+        .get::<_, bool>(&DataKey::Paused)
+        .unwrap_or(false)
+}
+
+fn require_not_paused(env: &Env) -> Result<(), ContractError> {
+    if get_paused_state(env) {
+        return Err(ContractError::Paused);
     }
     Ok(())
 }
@@ -139,6 +160,7 @@ impl RentToOwn {
         env.storage()
             .instance()
             .set(&DataKey::ForfeitureBps, &forfeiture_bps);
+        env.storage().instance().set(&DataKey::Paused, &false);
         Ok(())
     }
 
@@ -154,6 +176,7 @@ impl RentToOwn {
     ) -> Result<(), ContractError> {
         env.extend_instance_ttl();
 
+        require_not_paused(&env)?;
         require_admin(&env, &admin)?;
         if property_value_usdc <= 0 || monthly_equity_usdc <= 0 {
             return Err(ContractError::InvalidAmount);
@@ -194,6 +217,7 @@ impl RentToOwn {
     ) -> Result<(), ContractError> {
         env.extend_instance_ttl();
 
+        require_not_paused(&env)?;
         require_admin(&env, &admin)?;
         if rent_amount <= 0 || equity_amount <= 0 {
             return Err(ContractError::InvalidAmount);
@@ -245,6 +269,7 @@ impl RentToOwn {
     ) -> Result<(), ContractError> {
         env.extend_instance_ttl();
 
+        require_not_paused(&env)?;
         require_admin(&env, &admin)?;
 
         let mut deal: RentToOwnDeal = env
@@ -282,6 +307,7 @@ impl RentToOwn {
     ) -> Result<(), ContractError> {
         env.extend_instance_ttl();
 
+        require_not_paused(&env)?;
         require_admin(&env, &admin)?;
 
         let mut deal: RentToOwnDeal = env
@@ -327,6 +353,7 @@ impl RentToOwn {
     ) -> Result<DefaultSettlementRecord, ContractError> {
         env.extend_instance_ttl();
 
+        require_not_paused(&env)?;
         require_admin(&env, &admin)?;
 
         let deal: RentToOwnDeal = env
@@ -376,6 +403,7 @@ impl RentToOwn {
     ) -> Result<(), ContractError> {
         env.extend_instance_ttl();
 
+        require_not_paused(&env)?;
         require_admin(&env, &admin)?;
         from.require_auth();
 
@@ -446,7 +474,50 @@ impl RentToOwn {
     }
 }
 
+#[contractimpl]
+impl Pausable for RentToOwn {
+    /// Pause the contract. Admin-only, via the shared admin gate.
+    ///
+    /// While paused, every state-mutating entry point returns
+    /// `ContractError::Paused`; the read-only getters keep working.
+    fn pause(env: Env, admin: Address) -> Result<(), PausableError> {
+        env.extend_instance_ttl();
+
+        if require_admin(&env, &admin).is_err() {
+            return Err(PausableError::NotAuthorized);
+        }
+        env.storage().instance().set(&DataKey::Paused, &true);
+        env.events().publish(
+            (Symbol::new(&env, "Pausable"), Symbol::new(&env, "pause")),
+            admin,
+        );
+        Ok(())
+    }
+
+    /// Unpause the contract. Admin-only, via the shared admin gate.
+    fn unpause(env: Env, admin: Address) -> Result<(), PausableError> {
+        env.extend_instance_ttl();
+
+        if require_admin(&env, &admin).is_err() {
+            return Err(PausableError::NotAuthorized);
+        }
+        env.storage().instance().set(&DataKey::Paused, &false);
+        env.events().publish(
+            (Symbol::new(&env, "Pausable"), Symbol::new(&env, "unpause")),
+            admin,
+        );
+        Ok(())
+    }
+
+    fn is_paused(env: Env) -> bool {
+        get_paused_state(&env)
+    }
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod access_control_tests;
 
 #[cfg(test)]
 mod ttl_tests;

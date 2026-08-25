@@ -11,6 +11,7 @@ soroban-pausable = { version = "0.1.0", path = "../soroban_pausable" }
 soroban_reentrancy_guard = { version = "0.1.0", path = "../soroban_reentrancy_guard" }
 soroban_pausable_core = { path = "../soroban_pausable_core" }
 soroban-sdk = "22.0.7"
+soroban_access_control_core = { path = "../soroban_access_control_core" }
 soroban_storage_ttl = { path = "../soroban_storage_ttl" }
 
 [dev-dependencies]

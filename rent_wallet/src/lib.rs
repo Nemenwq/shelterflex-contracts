@@ -7,12 +7,14 @@ use soroban_sdk::{
 use soroban_storage_ttl::TtlStorage;
 
 // ── Storage keys ─────────────────────────────────────────────────────────────
-pub mod access_control;
 pub mod monthly_cap;
 pub mod validation;
 
 #[cfg(kani)]
 mod formal_properties;
+
+#[cfg(test)]
+mod access_control_tests;
 
 #[cfg(test)]
 mod ttl_tests;
@@ -210,7 +212,13 @@ impl RentWallet {
         env.extend_instance_ttl();
 
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(&env, &current_admin, &admin, "credit")?;
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &current_admin,
+            &admin,
+            "credit",
+            ContractError::NotAuthorized,
+        )?;
         require_not_paused(&env)?;
         validation::validate_amount(amount)?;
 
@@ -241,7 +249,13 @@ impl RentWallet {
         env.extend_instance_ttl();
 
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(&env, &current_admin, &admin, "debit")?;
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &current_admin,
+            &admin,
+            "debit",
+            ContractError::NotAuthorized,
+        )?;
         require_not_paused(&env)?;
         validation::validate_amount(amount)?;
 
@@ -281,7 +295,13 @@ impl RentWallet {
         env.extend_instance_ttl();
 
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(&env, &current_admin, &admin, "set_admin")?;
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &current_admin,
+            &admin,
+            "set_admin",
+            ContractError::NotAuthorized,
+        )?;
 
         let old_admin = get_admin(&env);
         env.storage().instance().set(&DataKey::Admin, &new_admin);
@@ -303,7 +323,14 @@ impl RentWallet {
 impl Pausable for RentWallet {
     fn pause(env: Env, admin: Address) -> Result<(), PausableError> {
         let current_admin = get_admin(&env);
-        if access_control::require_admin_permission(&env, &current_admin, &admin, "pause").is_err()
+        if soroban_access_control_core::require_admin_permission(
+            &env,
+            &current_admin,
+            &admin,
+            "pause",
+            ContractError::NotAuthorized,
+        )
+        .is_err()
         {
             return Err(PausableError::NotAuthorized);
         }
@@ -318,8 +345,14 @@ impl Pausable for RentWallet {
 
     fn unpause(env: Env, admin: Address) -> Result<(), PausableError> {
         let current_admin = get_admin(&env);
-        if access_control::require_admin_permission(&env, &current_admin, &admin, "unpause")
-            .is_err()
+        if soroban_access_control_core::require_admin_permission(
+            &env,
+            &current_admin,
+            &admin,
+            "unpause",
+            ContractError::NotAuthorized,
+        )
+        .is_err()
         {
             return Err(PausableError::NotAuthorized);
         }
@@ -345,7 +378,13 @@ impl RentWallet {
         env.extend_instance_ttl();
 
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(&env, &current_admin, &admin, "set_guardian")?;
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &current_admin,
+            &admin,
+            "set_guardian",
+            ContractError::NotAuthorized,
+        )?;
         env.storage().instance().set(&DataKey::Guardian, &guardian);
         env.events().publish(
             (
@@ -365,11 +404,12 @@ impl RentWallet {
         env.extend_instance_ttl();
 
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(
+        soroban_access_control_core::require_admin_permission(
             &env,
             &current_admin,
             &admin,
             "set_upgrade_delay",
+            ContractError::NotAuthorized,
         )?;
         env.storage()
             .instance()
@@ -395,7 +435,13 @@ impl RentWallet {
         env.extend_instance_ttl();
 
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(&env, &current_admin, &admin, "propose_upgrade")?;
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &current_admin,
+            &admin,
+            "propose_upgrade",
+            ContractError::NotAuthorized,
+        )?;
         if env.storage().instance().has(&DataKey::PendingUpgradeHash) {
             return Err(ContractError::UpgradeAlreadyPending);
         }
@@ -433,7 +479,13 @@ impl RentWallet {
         env.extend_instance_ttl();
 
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(&env, &current_admin, &admin, "execute_upgrade")?;
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &current_admin,
+            &admin,
+            "execute_upgrade",
+            ContractError::NotAuthorized,
+        )?;
         let pending: BytesN<32> = env
             .storage()
             .instance()
@@ -506,11 +558,12 @@ impl RentWallet {
         env.extend_instance_ttl();
 
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(
+        soroban_access_control_core::require_admin_permission(
             &env,
             &current_admin,
             &admin,
             "emergency_upgrade",
+            ContractError::NotAuthorized,
         )?;
 
         // Emergency upgrades still require schema compatibility, but allow only sequential
@@ -559,7 +612,13 @@ impl RentWallet {
         env.extend_instance_ttl();
 
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(&env, &current_admin, &admin, "cancel_upgrade")?;
+        soroban_access_control_core::require_admin_permission(
+            &env,
+            &current_admin,
+            &admin,
+            "cancel_upgrade",
+            ContractError::NotAuthorized,
+        )?;
         let hash: BytesN<32> = env
             .storage()
             .instance()
@@ -598,11 +657,12 @@ impl RentWallet {
         env.extend_instance_ttl();
 
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(
+        soroban_access_control_core::require_admin_permission(
             &env,
             &current_admin,
             &admin,
             "set_default_monthly_cap",
+            ContractError::NotAuthorized,
         )?;
         if cap < 0 {
             return Err(ContractError::InvalidAmount);
@@ -629,11 +689,12 @@ impl RentWallet {
         env.extend_instance_ttl();
 
         let current_admin = get_admin(&env);
-        access_control::require_admin_permission(
+        soroban_access_control_core::require_admin_permission(
             &env,
             &current_admin,
             &admin,
             "set_user_monthly_cap",
+            ContractError::NotAuthorized,
         )?;
         if cap < 0 {
             return Err(ContractError::InvalidAmount);

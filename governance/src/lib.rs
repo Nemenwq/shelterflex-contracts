@@ -99,11 +99,13 @@ fn get_admin(env: &Env) -> Address {
 }
 
 fn require_admin(env: &Env, caller: &Address) -> Result<(), ContractError> {
-    caller.require_auth();
-    if caller != &get_admin(env) {
-        return Err(ContractError::NotAuthorized);
-    }
-    Ok(())
+    soroban_access_control_core::require_admin_permission(
+        env,
+        &get_admin(env),
+        caller,
+        "admin",
+        ContractError::NotAuthorized,
+    )
 }
 
 fn get_total_staked(env: &Env) -> i128 {
@@ -458,6 +460,9 @@ impl Governance {
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod access_control_tests;
 
 #[cfg(test)]
 mod tests {

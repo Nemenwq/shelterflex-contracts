@@ -23,8 +23,10 @@ The contracts directory is a Cargo workspace. Each subdirectory is a separate co
 | `transaction-receipt-contract/` | On-chain transaction receipts with canonical tx_id |
 | `whistleblower_rewards/` | Reward allocation and claiming for whistleblowers who report fraudulent listings |
 | `upgradeable_proxy/` | Proxy pattern for contract upgrades |
-| `soroban_access_control/` | Shared access-control primitives |
-| `soroban_pausable/` | Shared pausable primitive used across contracts |
+| `soroban_access_control_core/` | **The** shared access-control primitives — every contract's admin/operator gate links this crate |
+| `soroban_access_control/` | Deployable reference implementation and conformance suite for `soroban_access_control_core` |
+| `soroban_pausable_core/` | Shared pausable primitives (`Pausable` trait, `PausableError`) linked by contracts |
+| `soroban_pausable/` | Deployable reference implementation of the pausable primitive |
 | `contract_access/` | Contract-level access helpers |
 | `soroban_storage_ttl/` | Shared storage TTL policy — see [docs/contracts/STORAGE_TTL.md](docs/contracts/STORAGE_TTL.md) |
 

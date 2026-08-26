@@ -1294,6 +1294,7 @@ dependencies = [
  "soroban_access_control_core",
  "soroban_pausable_core",
  "soroban_storage_ttl",
+ "soroban_upgrade_governance_core",
 ]
 
 [[package]]
@@ -1752,6 +1753,13 @@ dependencies = [
 
 [[package]]
 name = "soroban_storage_ttl"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
+name = "soroban_upgrade_governance_core"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",

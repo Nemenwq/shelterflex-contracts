@@ -45,7 +45,6 @@ pub enum DataKey {
     MonthlySpent(Address, u32),
 }
 
-
 // ── Errors ───────────────────────────────────────────────────────────────────
 
 #[contracterror]
@@ -133,7 +132,9 @@ impl RentWallet {
             return Err(ContractError::AlreadyInitialized);
         }
 
-        env.storage().instance().set(&UpgradeGovernanceKey::Admin, &admin);
+        env.storage()
+            .instance()
+            .set(&UpgradeGovernanceKey::Admin, &admin);
         env.storage()
             .instance()
             .set(&UpgradeGovernanceKey::ContractVersion, &1u32);
@@ -277,7 +278,9 @@ impl RentWallet {
         )?;
 
         let old_admin = get_admin(&env);
-        env.storage().instance().set(&UpgradeGovernanceKey::Admin, &new_admin);
+        env.storage()
+            .instance()
+            .set(&UpgradeGovernanceKey::Admin, &new_admin);
 
         // #389: include old_admin for full audit trail
         env.events().publish(
@@ -410,7 +413,9 @@ impl RentWallet {
             UpgradeGovernanceError::NotAuthorized => ContractError::NotAuthorized,
             UpgradeGovernanceError::UpgradeAlreadyPending => ContractError::UpgradeAlreadyPending,
             UpgradeGovernanceError::InvalidUpgradeVersion => ContractError::InvalidUpgradeVersion,
-            UpgradeGovernanceError::IncompatibleSchemaVersion => ContractError::IncompatibleStateSchema,
+            UpgradeGovernanceError::IncompatibleSchemaVersion => {
+                ContractError::IncompatibleStateSchema
+            }
             _ => ContractError::NotAuthorized,
         })
     }
@@ -473,7 +478,9 @@ impl RentWallet {
             UpgradeGovernanceError::NotAuthorized => ContractError::NotAuthorized,
             UpgradeGovernanceError::GuardianNotConfigured => ContractError::NotAuthorized,
             UpgradeGovernanceError::InvalidUpgradeVersion => ContractError::InvalidUpgradeVersion,
-            UpgradeGovernanceError::IncompatibleSchemaVersion => ContractError::IncompatibleStateSchema,
+            UpgradeGovernanceError::IncompatibleSchemaVersion => {
+                ContractError::IncompatibleStateSchema
+            }
             _ => ContractError::NotAuthorized,
         })
     }
@@ -497,7 +504,9 @@ impl RentWallet {
         env.storage()
             .instance()
             .remove(&UpgradeGovernanceKey::PendingUpgradeHash);
-        env.storage().instance().remove(&UpgradeGovernanceKey::PendingUpgradeAt);
+        env.storage()
+            .instance()
+            .remove(&UpgradeGovernanceKey::PendingUpgradeAt);
         env.storage()
             .instance()
             .remove(&UpgradeGovernanceKey::PendingUpgradeVersion);

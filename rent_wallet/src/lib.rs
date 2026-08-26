@@ -277,7 +277,7 @@ impl RentWallet {
         )?;
 
         let old_admin = get_admin(&env);
-        env.storage().instance().set(&DataKey::Admin, &new_admin);
+        env.storage().instance().set(&UpgradeGovernanceKey::Admin, &new_admin);
 
         // #389: include old_admin for full audit trail
         env.events().publish(

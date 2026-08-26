@@ -1287,6 +1287,7 @@ dependencies = [
  "soroban_access_control_core",
  "soroban_pausable_core",
  "soroban_storage_ttl",
+ "soroban_upgrade_governance_core",
 ]
 
 [[package]]

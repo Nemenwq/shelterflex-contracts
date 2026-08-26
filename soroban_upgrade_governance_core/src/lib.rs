@@ -472,22 +472,22 @@ mod tests {
         // Test that error conversion works
         let error = UpgradeGovernanceError::NotAuthorized;
         assert_eq!(error as u32, 1);
-        
+
         let error = UpgradeGovernanceError::UpgradeAlreadyPending;
         assert_eq!(error as u32, 2);
-        
+
         let error = UpgradeGovernanceError::NoPendingUpgrade;
         assert_eq!(error as u32, 3);
-        
+
         let error = UpgradeGovernanceError::UpgradeDelayNotElapsed;
         assert_eq!(error as u32, 4);
-        
+
         let error = UpgradeGovernanceError::GuardianNotConfigured;
         assert_eq!(error as u32, 5);
-        
+
         let error = UpgradeGovernanceError::InvalidUpgradeVersion;
         assert_eq!(error as u32, 6);
-        
+
         let error = UpgradeGovernanceError::IncompatibleSchemaVersion;
         assert_eq!(error as u32, 7);
     }

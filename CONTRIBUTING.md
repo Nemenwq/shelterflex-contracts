@@ -1,4 +1,5 @@
-# Contributing to Shelterflex Contracts
+# Contributing to Shelterflex Contracts 
+
 
 Thanks for contributing! These are the **Soroban smart contracts** for Shelterflex, a Rent
 Now, Pay Later (RNPL) rental platform. See the [ecosystem overview](https://github.com/Shelterflex/shelterflex-platform/blob/main/ECOSYSTEM.md)

@@ -32,7 +32,6 @@ fn test_allowed_sources_constant() {
 }
 
 #[test]
-#[ignore = "v1 canonicalization not yet implemented (hashes raw XDR, not the canonical string) — see #13"]
 fn test_generate_tx_id_golden_vector_v1() {
     let env = Env::default();
     let source = Symbol::new(&env, "PAYSTACK");
@@ -50,7 +49,6 @@ fn test_generate_tx_id_golden_vector_v1() {
 }
 
 #[test]
-#[ignore = "v1 canonicalization not yet implemented (hashes raw XDR, not the canonical string) — see #13"]
 fn test_metadata_hash_golden_vector_v1() {
     let env = Env::default();
     let contract_id = env.register(TransactionReceiptContract, ());
@@ -295,7 +293,6 @@ fn test_generate_tx_id_invalid_source() {
 }
 
 #[test]
-#[ignore = "v1 canonicalization not yet implemented (hashes raw XDR, not the canonical string) — see #13"]
 fn test_generate_tx_id_empty_reference() {
     let env = Env::default();
     let source = Symbol::new(&env, "paystack");
@@ -307,7 +304,6 @@ fn test_generate_tx_id_empty_reference() {
 }
 
 #[test]
-#[ignore = "v1 canonicalization not yet implemented (hashes raw XDR, not the canonical string) — see #13"]
 fn test_generate_tx_id_whitespace_only_reference() {
     let env = Env::default();
     let source = Symbol::new(&env, "paystack");
@@ -343,7 +339,6 @@ fn test_generate_tx_id_reference_too_long() {
 }
 
 #[test]
-#[ignore = "v1 canonicalization not yet implemented (hashes raw XDR, not the canonical string) — see #13"]
 fn test_generate_tx_id_reference_exactly_256_chars() {
     let env = Env::default();
     let source = Symbol::new(&env, "paystack");
@@ -356,7 +351,6 @@ fn test_generate_tx_id_reference_exactly_256_chars() {
 }
 
 #[test]
-#[ignore = "v1 canonicalization not yet implemented (hashes raw XDR, not the canonical string) — see #13"]
 fn test_generate_tx_id_source_case_insensitive() {
     let env = Env::default();
     let reference = String::from_str(&env, "ref_12345");
@@ -390,7 +384,6 @@ fn test_generate_tx_id_reference_case_sensitive() {
 }
 
 #[test]
-#[ignore = "v1 canonicalization not yet implemented (hashes raw XDR, not the canonical string) — see #13"]
 fn test_generate_tx_id_trimming() {
     let env = Env::default();
     // Note: Symbols cannot contain spaces, so we test reference trimming only
@@ -808,7 +801,6 @@ fn test_pause_unpause_cycle() {
 
 // Golden test vectors - shared with backend tests
 #[test]
-#[ignore = "v1 canonicalization not yet implemented (hashes raw XDR, not the canonical string) — see #13"]
 fn test_golden_vectors() {
     let env = Env::default();
 

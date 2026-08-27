@@ -71,6 +71,116 @@ pub struct ReceiptInput {
     pub metadata_hash: Option<BytesN<32>>,
 }
 
+/// Extract the raw content bytes of a Soroban `String` as a host-backed
+/// `Bytes` object, without copying through guest (wasm linear) memory.
+///
+/// A `String`'s XDR encoding is `[4-byte SCV_STRING discriminant][4-byte
+/// length][content bytes][zero padding to a 4-byte boundary]`. Slicing the
+/// XDR bytes from offset 8 for `len()` bytes yields exactly the content,
+/// regardless of string length — this avoids needing a fixed-size local
+/// buffer to support arbitrary-length fields like `deal_id`.
+fn string_raw_bytes(env: &soroban_sdk::Env, s: &String) -> soroban_sdk::Bytes {
+    use soroban_sdk::xdr::ToXdr;
+
+    let xdr = s.to_val().to_xdr(env);
+    let len = s.len();
+    xdr.slice(8..8 + len)
+}
+
+fn is_ascii_ws(b: u8) -> bool {
+    matches!(b, b' ' | b'\t' | b'\n' | b'\r' | 0x0B | 0x0C)
+}
+
+/// Trim leading/trailing ASCII whitespace from a Soroban `String`, returning
+/// the trimmed content as a host-backed `Bytes` object.
+fn trim_ascii_bytes(env: &soroban_sdk::Env, s: &String) -> soroban_sdk::Bytes {
+    let content = string_raw_bytes(env, s);
+    let len = content.len();
+
+    let mut start: u32 = 0;
+    while start < len && is_ascii_ws(content.get_unchecked(start)) {
+        start += 1;
+    }
+
+    let mut end: u32 = len;
+    while end > start && is_ascii_ws(content.get_unchecked(end - 1)) {
+        end -= 1;
+    }
+
+    content.slice(start..end)
+}
+
+/// Extract a Symbol's exact-case ASCII characters into a stack buffer.
+/// Symbols are capped at 32 characters by the SDK, so a fixed buffer is safe
+/// (unlike arbitrary-length `String` fields).
+fn symbol_ascii(env: &soroban_sdk::Env, sym: &Symbol) -> ([u8; 32], usize) {
+    use soroban_sdk::{SymbolStr, TryFromVal};
+
+    let ss = SymbolStr::try_from_val(env, &sym.to_symbol_val()).unwrap_or_default();
+    let raw: &[u8] = ss.as_ref();
+    let len = raw.len();
+    let mut buf = [0u8; 32];
+    buf[..len].copy_from_slice(raw);
+    (buf, len)
+}
+
+/// Validate `external_ref_source` against `ALLOWED_SOURCES` case-insensitively
+/// and return the matching canonical (lowercase) source string.
+fn normalize_source(
+    env: &soroban_sdk::Env,
+    external_ref_source: &Symbol,
+) -> Result<&'static str, ContractError> {
+    let (buf, len) = symbol_ascii(env, external_ref_source);
+    let mut lower = [0u8; 32];
+    for i in 0..len {
+        lower[i] = buf[i].to_ascii_lowercase();
+    }
+    let lowered = &lower[..len];
+
+    for allowed in ALLOWED_SOURCES.iter() {
+        if lowered == allowed.as_bytes() {
+            return Ok(allowed);
+        }
+    }
+
+    Err(ContractError::InvalidExternalRefSource)
+}
+
+/// Validate and normalize an `(external_ref_source, external_ref)` pair per
+/// the v1 canonicalization rules, returning the lowercased source and the
+/// trimmed reference content.
+///
+/// # Validation Rules
+/// * `external_ref_source` must match `ALLOWED_SOURCES` case-insensitively
+/// * `external_ref` must not be empty after trimming ASCII whitespace
+/// * `external_ref` must not contain a pipe character (`|`) after trimming
+/// * `external_ref` must not exceed 256 characters after trimming (character
+///   count, not XDR byte length)
+fn validate_and_normalize_ref(
+    env: &soroban_sdk::Env,
+    external_ref_source: &Symbol,
+    external_ref: &String,
+) -> Result<(&'static str, soroban_sdk::Bytes), ContractError> {
+    let source_lower = normalize_source(env, external_ref_source)?;
+    let ref_trimmed = trim_ascii_bytes(env, external_ref);
+
+    if ref_trimmed.is_empty() {
+        return Err(ContractError::InvalidExternalRef);
+    }
+
+    if ref_trimmed.len() > 256 {
+        return Err(ContractError::InvalidExternalRef);
+    }
+
+    for b in ref_trimmed.iter() {
+        if b == b'|' {
+            return Err(ContractError::InvalidExternalRef);
+        }
+    }
+
+    Ok((source_lower, ref_trimmed))
+}
+
 /// Helper function to validate external reference source and external reference.
 ///
 /// This enforces the same invariants as `generate_tx_id`, but can be used
@@ -80,47 +190,34 @@ fn validate_external_ref(
     external_ref_source: &Symbol,
     external_ref: &String,
 ) -> Result<(), ContractError> {
-    use soroban_sdk::xdr::ToXdr;
+    validate_and_normalize_ref(env, external_ref_source, external_ref).map(|_| ())
+}
 
-    // Serialize the caller's Symbol and each allowed source with the SAME env, then
-    // compare like-for-like. Comparing an XDR-serialized Symbol against a raw byte
-    // slice never matches (XDR adds type/length framing), and serializing with a
-    // throwaway `Env::default()` is incorrect for object-backed (>9 char) symbols.
-    let source_bytes = external_ref_source.to_val().to_xdr(env);
-    let ref_bytes = external_ref.to_val().to_xdr(env);
-
-    // Validate external_ref_source against ALLOWED_SOURCES by comparing XDR bytes
-    let mut source_valid = false;
-    for allowed in ALLOWED_SOURCES.iter() {
-        let allowed_bytes = Symbol::new(env, allowed).to_val().to_xdr(env);
-        if source_bytes == allowed_bytes {
-            source_valid = true;
-            break;
-        }
+/// Append the decimal ASCII representation of an `i128` to `combined`
+/// (e.g. `-42` or `0`), using `u128` magnitude arithmetic so `i128::MIN`
+/// does not overflow on negation.
+fn append_i128_decimal(combined: &mut soroban_sdk::Bytes, value: i128) {
+    if value == 0 {
+        combined.push_back(b'0');
+        return;
     }
 
-    if !source_valid {
-        return Err(ContractError::InvalidExternalRefSource);
+    let negative = value < 0;
+    if negative {
+        combined.push_back(b'-');
     }
 
-    // Validate external_ref is not empty
-    if ref_bytes.is_empty() {
-        return Err(ContractError::InvalidExternalRef);
+    let mut magnitude: u128 = value.unsigned_abs();
+    let mut digits: [u8; 40] = [0; 40];
+    let mut pos = 0;
+    while magnitude > 0 {
+        digits[pos] = (magnitude % 10) as u8 + b'0';
+        magnitude /= 10;
+        pos += 1;
     }
-
-    // Validate external_ref does not contain pipe character
-    for b in ref_bytes.iter() {
-        if b == b'|' {
-            return Err(ContractError::InvalidExternalRef);
-        }
+    for i in (0..pos).rev() {
+        combined.push_back(digits[i]);
     }
-
-    // Validate external_ref does not exceed 256 characters
-    if ref_bytes.len() > 256 {
-        return Err(ContractError::InvalidExternalRef);
-    }
-
-    Ok(())
 }
 
 /// Produce canonical bytes for metadata hashing (v1).
@@ -137,112 +234,58 @@ fn canonical_metadata_payload_v1(
     env: &soroban_sdk::Env,
     input: &ReceiptInput,
 ) -> soroban_sdk::Bytes {
-    use soroban_sdk::xdr::ToXdr;
     use soroban_sdk::Bytes;
 
-    // Use XDR serialization to convert Soroban types to bytes
-    let source_bytes = input.external_ref_source.to_val().to_xdr(env);
-    let ext_ref_bytes = input.external_ref.to_val().to_xdr(env);
-    let tx_type_bytes = input.tx_type.to_val().to_xdr(env);
-    let token_bytes = input.token.to_val().to_xdr(env);
-    let deal_id_bytes = input.deal_id.to_val().to_xdr(env);
-
-    // Concatenate XDR bytes directly
     let mut combined = Bytes::new(env);
-    combined.append(&source_bytes);
-    combined.append(&ext_ref_bytes);
-    combined.append(&tx_type_bytes);
-    combined.append(&token_bytes);
-    combined.append(&deal_id_bytes);
 
-    // Convert i128 to bytes for amount_usdc
-    let mut amount = input.amount_usdc;
-    if amount == 0 {
-        combined.append(&Bytes::from_slice(env, &[b'0']));
-    } else {
-        let mut digits: [u8; 40] = [0; 40];
-        let mut pos = 0;
-        let mut negative = amount < 0;
-        if negative {
-            amount = -amount;
-        }
-        while amount > 0 {
-            digits[pos] = (amount % 10) as u8 + b'0';
-            amount /= 10;
-            pos += 1;
-        }
-        if negative {
-            combined.append(&Bytes::from_slice(env, &[b'-']));
-        }
-        for i in (0..pos).rev() {
-            combined.append(&Bytes::from_slice(env, &[digits[i]]));
-        }
-    }
+    combined.extend_from_slice(b"v1|external_ref_source=");
+    let source_lower = normalize_source(env, &input.external_ref_source).unwrap_or_default();
+    combined.extend_from_slice(source_lower.as_bytes());
+
+    combined.extend_from_slice(b"|external_ref=");
+    combined.append(&trim_ascii_bytes(env, &input.external_ref));
+
+    combined.extend_from_slice(b"|tx_type=");
+    let (tx_type_buf, tx_type_len) = symbol_ascii(env, &input.tx_type);
+    combined.extend_from_slice(&tx_type_buf[..tx_type_len]);
+
+    combined.extend_from_slice(b"|amount_usdc=");
+    append_i128_decimal(&mut combined, input.amount_usdc);
+
+    combined.extend_from_slice(b"|token=");
+    combined.append(&string_raw_bytes(env, &input.token.to_string()));
+
+    combined.extend_from_slice(b"|deal_id=");
+    combined.append(&string_raw_bytes(env, &input.deal_id));
 
     if let Some(ref listing_id) = input.listing_id {
-        combined.append(&listing_id.to_val().to_xdr(env));
+        combined.extend_from_slice(b"|listing_id=");
+        combined.append(&string_raw_bytes(env, listing_id));
     }
 
     if let Some(ref from) = input.from {
-        combined.append(&from.to_val().to_xdr(env));
+        combined.extend_from_slice(b"|from=");
+        combined.append(&string_raw_bytes(env, &from.to_string()));
     }
 
     if let Some(ref to) = input.to {
-        combined.append(&to.to_val().to_xdr(env));
+        combined.extend_from_slice(b"|to=");
+        combined.append(&string_raw_bytes(env, &to.to_string()));
     }
 
     if let Some(amount_ngn) = input.amount_ngn {
-        let mut amount = amount_ngn;
-        if amount == 0 {
-            combined.append(&Bytes::from_slice(env, &[b'0']));
-        } else {
-            let mut digits: [u8; 40] = [0; 40];
-            let mut pos = 0;
-            let mut negative = amount < 0;
-            if negative {
-                amount = -amount;
-            }
-            while amount > 0 {
-                digits[pos] = (amount % 10) as u8 + b'0';
-                amount /= 10;
-                pos += 1;
-            }
-            if negative {
-                combined.append(&Bytes::from_slice(env, &[b'-']));
-            }
-            for i in (0..pos).rev() {
-                combined.append(&Bytes::from_slice(env, &[digits[i]]));
-            }
-        }
+        combined.extend_from_slice(b"|amount_ngn=");
+        append_i128_decimal(&mut combined, amount_ngn);
     }
 
     if let Some(fx_rate) = input.fx_rate_ngn_per_usdc {
-        let mut rate = fx_rate;
-        if rate == 0 {
-            combined.append(&Bytes::from_slice(env, &[b'0']));
-        } else {
-            let mut digits: [u8; 40] = [0; 40];
-            let mut pos = 0;
-            let mut negative = rate < 0;
-            if negative {
-                rate = -rate;
-            }
-            while rate > 0 {
-                digits[pos] = (rate % 10) as u8 + b'0';
-                rate /= 10;
-                pos += 1;
-            }
-            if negative {
-                combined.append(&Bytes::from_slice(env, &[b'-']));
-            }
-            for i in (0..pos).rev() {
-                combined.append(&Bytes::from_slice(env, &[digits[i]]));
-            }
-        }
+        combined.extend_from_slice(b"|fx_rate_ngn_per_usdc=");
+        append_i128_decimal(&mut combined, fx_rate);
     }
 
     if let Some(ref fx_provider) = input.fx_provider {
-        combined.append(&fx_provider.to_val().to_xdr(env));
+        combined.extend_from_slice(b"|fx_provider=");
+        combined.append(&string_raw_bytes(env, fx_provider));
     }
 
     combined
@@ -878,50 +921,17 @@ fn generate_tx_id(
     external_ref_source: &Symbol,
     external_ref: &String,
 ) -> Result<BytesN<32>, ContractError> {
-    use soroban_sdk::xdr::ToXdr;
     use soroban_sdk::Bytes;
 
-    // Use XDR serialization to convert Soroban types to bytes
-    let source_bytes = external_ref_source.to_val().to_xdr(env);
-    let ref_bytes = external_ref.to_val().to_xdr(env);
+    let (source_lower, ref_trimmed) =
+        validate_and_normalize_ref(env, external_ref_source, external_ref)?;
 
-    // Validate external_ref_source against ALLOWED_SOURCES by comparing XDR bytes
-    // (serialize each allowed source as a Symbol with the same env — comparing an
-    // XDR-serialized Symbol against a raw byte slice never matches).
-    let mut source_valid = false;
-    for allowed in ALLOWED_SOURCES.iter() {
-        let allowed_bytes = Symbol::new(env, allowed).to_val().to_xdr(env);
-        if source_bytes == allowed_bytes {
-            source_valid = true;
-            break;
-        }
-    }
-
-    if !source_valid {
-        return Err(ContractError::InvalidExternalRefSource);
-    }
-
-    // Validate external_ref is not empty
-    if ref_bytes.is_empty() {
-        return Err(ContractError::InvalidExternalRef);
-    }
-
-    // Validate external_ref does not contain pipe character
-    for b in ref_bytes.iter() {
-        if b == b'|' {
-            return Err(ContractError::InvalidExternalRef);
-        }
-    }
-
-    // Validate external_ref does not exceed 256 characters
-    if ref_bytes.len() > 256 {
-        return Err(ContractError::InvalidExternalRef);
-    }
-
-    // Concatenate bytes and hash
+    // Build canonical string "v1|source=<lowercased_trimmed_source>|ref=<trimmed_ref>" and hash it
     let mut combined = Bytes::new(env);
-    combined.append(&source_bytes);
-    combined.append(&ref_bytes);
+    combined.extend_from_slice(b"v1|source=");
+    combined.extend_from_slice(source_lower.as_bytes());
+    combined.extend_from_slice(b"|ref=");
+    combined.append(&ref_trimmed);
 
     let hash = env.crypto().sha256(&combined);
     Ok(hash.into())

@@ -302,7 +302,10 @@ fn non_admin_rejected_on_every_admin_gated_entry_point() {
     );
 
     assert_eq!(
-        client.try_execute_upgrade(&attacker, &hash).unwrap_err().unwrap(),
+        client
+            .try_execute_upgrade(&attacker, &hash)
+            .unwrap_err()
+            .unwrap(),
         ContractError::NotAuthorized,
         "execute_upgrade must reject a non-admin"
     );

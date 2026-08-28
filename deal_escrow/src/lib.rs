@@ -2281,9 +2281,10 @@ mod test {
             .unwrap();
 
         env.as_contract(&contract_id, || {
-            env.storage()
-                .instance()
-                .set(&soroban_upgrade_governance_core::UpgradeGovernanceKey::StorageSchemaVersion, &1u32);
+            env.storage().instance().set(
+                &soroban_upgrade_governance_core::UpgradeGovernanceKey::StorageSchemaVersion,
+                &1u32,
+            );
         });
 
         let deal_ids = soroban_sdk::Vec::from_array(&env, [deal_id.clone()]);
@@ -2315,9 +2316,10 @@ mod test {
         let (contract_id, client, admin, _operator, _token, _token_admin, _rcpt) = setup(&env);
         let deal_id = String::from_str(&env, "legacy-v2-bad");
         env.as_contract(&contract_id, || {
-            env.storage()
-                .instance()
-                .set(&soroban_upgrade_governance_core::UpgradeGovernanceKey::StorageSchemaVersion, &2u32);
+            env.storage().instance().set(
+                &soroban_upgrade_governance_core::UpgradeGovernanceKey::StorageSchemaVersion,
+                &2u32,
+            );
             env.storage()
                 .persistent()
                 .set(&DataKey::DealBalance(deal_id.clone()), &100i128);
@@ -2594,9 +2596,10 @@ mod test {
         let (contract_id, client, admin, _, _, _, _) = setup(&env);
         // Downgrade stored version to V2, then try to migrate from V1 → mismatch.
         env.as_contract(&contract_id, || {
-            env.storage()
-                .instance()
-                .set(&soroban_upgrade_governance_core::UpgradeGovernanceKey::StorageSchemaVersion, &2u32);
+            env.storage().instance().set(
+                &soroban_upgrade_governance_core::UpgradeGovernanceKey::StorageSchemaVersion,
+                &2u32,
+            );
         });
         let deal_ids = soroban_sdk::Vec::<String>::new(&env);
         env.mock_auths(&[MockAuth {
@@ -2648,9 +2651,10 @@ mod test {
 
         // Simulate V2 layout: set schema to V2 and write legacy fields (both 0).
         env.as_contract(&contract_id, || {
-            env.storage()
-                .instance()
-                .set(&soroban_upgrade_governance_core::UpgradeGovernanceKey::StorageSchemaVersion, &2u32);
+            env.storage().instance().set(
+                &soroban_upgrade_governance_core::UpgradeGovernanceKey::StorageSchemaVersion,
+                &2u32,
+            );
             env.storage()
                 .persistent()
                 .set(&DataKey::LegacyLockedAmountV2(deal_id.clone()), &0i128);
@@ -2679,9 +2683,10 @@ mod test {
         let (contract_id, client, _, _, _, _, _) = setup(&env);
         let stranger = Address::generate(&env);
         env.as_contract(&contract_id, || {
-            env.storage()
-                .instance()
-                .set(&soroban_upgrade_governance_core::UpgradeGovernanceKey::StorageSchemaVersion, &1u32);
+            env.storage().instance().set(
+                &soroban_upgrade_governance_core::UpgradeGovernanceKey::StorageSchemaVersion,
+                &1u32,
+            );
         });
         let deal_ids = soroban_sdk::Vec::<String>::new(&env);
         env.mock_auths(&[MockAuth {
@@ -2765,9 +2770,10 @@ mod test {
 
         // Rewind schema to V1.
         env.as_contract(&contract_id, || {
-            env.storage()
-                .instance()
-                .set(&soroban_upgrade_governance_core::UpgradeGovernanceKey::StorageSchemaVersion, &1u32);
+            env.storage().instance().set(
+                &soroban_upgrade_governance_core::UpgradeGovernanceKey::StorageSchemaVersion,
+                &1u32,
+            );
         });
 
         let deal_ids = soroban_sdk::Vec::from_array(&env, [deal_a.clone(), deal_b.clone()]);

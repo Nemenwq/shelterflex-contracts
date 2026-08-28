@@ -135,7 +135,6 @@ pub fn propose_upgrade(
 
     // Require admin authorization
     if admin != &current_admin {
-        admin.require_auth();
         return Err(UpgradeGovernanceError::NotAuthorized);
     }
     admin.require_auth();
@@ -194,7 +193,6 @@ pub fn execute_upgrade(
 
     // Require admin authorization
     if admin != &current_admin {
-        admin.require_auth();
         return Err(UpgradeGovernanceError::NotAuthorized);
     }
     admin.require_auth();
@@ -290,7 +288,6 @@ pub fn emergency_upgrade(
 
     // Require admin authorization
     if admin != &current_admin {
-        admin.require_auth();
         return Err(UpgradeGovernanceError::NotAuthorized);
     }
     admin.require_auth();

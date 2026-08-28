@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use super::*;
 use soroban_sdk::testutils::{Address as _, Events as _, MockAuth, MockAuthInvoke};
 use soroban_sdk::{token::StellarAssetClient, Address, Env, IntoVal};
@@ -224,11 +222,11 @@ fn stake_emits_event() {
     client.stake(&user, &100i128);
 
     let events = env.events().all();
-    assert!(events.len() > 0);
+    assert!(!events.is_empty());
 
     // Verify at least one event was emitted
     // The event structure in soroban SDK is complex, so we just check events exist
-    assert!(events.len() >= 1);
+    assert!(!events.is_empty());
 }
 
 #[test]
@@ -244,11 +242,11 @@ fn unstake_emits_event() {
     client.unstake(&user, &100i128);
 
     let events = env.events().all();
-    assert!(events.len() > 0);
+    assert!(!events.is_empty());
 
     // Verify at least one event was emitted
     // The event structure in soroban SDK is complex, so we just check events exist
-    assert!(events.len() >= 1);
+    assert!(!events.is_empty());
 }
 
 // ── Authorization boundary (Issue #18) ───────────────────────────────────────

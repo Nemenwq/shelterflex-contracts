@@ -2624,7 +2624,7 @@ mod test {
     fn migrate_v2_to_v3_preserves_per_deal_balance() {
         let env = Env::default();
         env.mock_all_auths();
-        let (contract_id, client, admin, _, token, token_admin, _) = setup(&env);
+        let (contract_id, client, admin, _, token, _token_admin, _) = setup(&env);
         let depositor = Address::generate(&env);
         let deal_id = String::from_str(&env, "v2-balance-deal");
         let token_sac = soroban_sdk::token::StellarAssetClient::new(&env, &token);
@@ -2723,7 +2723,7 @@ mod test {
     fn migrate_v1_balance_conservation_across_multiple_deals() {
         let env = Env::default();
         env.mock_all_auths();
-        let (contract_id, client, admin, _, token, token_admin, _) = setup(&env);
+        let (contract_id, client, admin, _, token, _token_admin, _) = setup(&env);
         let depositor = Address::generate(&env);
         let token_sac = soroban_sdk::token::StellarAssetClient::new(&env, &token);
         token_sac.mint(&depositor, &500i128);

@@ -1438,7 +1438,7 @@ mod test {
         env.as_contract(&contract_id, || {
             env.storage()
                 .instance()
-                .set(&super::DataKey::StateSchemaVersion, &0u32);
+                .set(&soroban_upgrade_governance_core::UpgradeGovernanceKey::StorageSchemaVersion, &0u32);
         });
 
         env.mock_auths(&[MockAuth {

@@ -1436,9 +1436,10 @@ mod test {
 
         // Break schema compatibility to force execute_upgrade to fail.
         env.as_contract(&contract_id, || {
-            env.storage()
-                .instance()
-                .set(&soroban_upgrade_governance_core::UpgradeGovernanceKey::StorageSchemaVersion, &0u32);
+            env.storage().instance().set(
+                &soroban_upgrade_governance_core::UpgradeGovernanceKey::StorageSchemaVersion,
+                &0u32,
+            );
         });
 
         env.mock_auths(&[MockAuth {

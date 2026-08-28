@@ -2283,7 +2283,7 @@ mod test {
         env.as_contract(&contract_id, || {
             env.storage()
                 .instance()
-                .set(&DataKey::StorageSchemaVersion, &1u32);
+                .set(&soroban_upgrade_governance_core::UpgradeGovernanceKey::StorageSchemaVersion, &1u32);
         });
 
         let deal_ids = soroban_sdk::Vec::from_array(&env, [deal_id.clone()]);
@@ -2317,7 +2317,7 @@ mod test {
         env.as_contract(&contract_id, || {
             env.storage()
                 .instance()
-                .set(&DataKey::StorageSchemaVersion, &2u32);
+                .set(&soroban_upgrade_governance_core::UpgradeGovernanceKey::StorageSchemaVersion, &2u32);
             env.storage()
                 .persistent()
                 .set(&DataKey::DealBalance(deal_id.clone()), &100i128);
@@ -2596,7 +2596,7 @@ mod test {
         env.as_contract(&contract_id, || {
             env.storage()
                 .instance()
-                .set(&DataKey::StorageSchemaVersion, &2u32);
+                .set(&soroban_upgrade_governance_core::UpgradeGovernanceKey::StorageSchemaVersion, &2u32);
         });
         let deal_ids = soroban_sdk::Vec::<String>::new(&env);
         env.mock_auths(&[MockAuth {
@@ -2650,7 +2650,7 @@ mod test {
         env.as_contract(&contract_id, || {
             env.storage()
                 .instance()
-                .set(&DataKey::StorageSchemaVersion, &2u32);
+                .set(&soroban_upgrade_governance_core::UpgradeGovernanceKey::StorageSchemaVersion, &2u32);
             env.storage()
                 .persistent()
                 .set(&DataKey::LegacyLockedAmountV2(deal_id.clone()), &0i128);
@@ -2681,7 +2681,7 @@ mod test {
         env.as_contract(&contract_id, || {
             env.storage()
                 .instance()
-                .set(&DataKey::StorageSchemaVersion, &1u32);
+                .set(&soroban_upgrade_governance_core::UpgradeGovernanceKey::StorageSchemaVersion, &1u32);
         });
         let deal_ids = soroban_sdk::Vec::<String>::new(&env);
         env.mock_auths(&[MockAuth {
@@ -2767,7 +2767,7 @@ mod test {
         env.as_contract(&contract_id, || {
             env.storage()
                 .instance()
-                .set(&DataKey::StorageSchemaVersion, &1u32);
+                .set(&soroban_upgrade_governance_core::UpgradeGovernanceKey::StorageSchemaVersion, &1u32);
         });
 
         let deal_ids = soroban_sdk::Vec::from_array(&env, [deal_a.clone(), deal_b.clone()]);
@@ -2789,7 +2789,7 @@ mod test {
     fn challenge_after_window_is_rejected() {
         let env = Env::default();
         env.mock_all_auths();
-        let (contract_id, client, admin, operator, token, token_admin, _) = setup(&env);
+        let (contract_id, client, admin, operator, token, _token_admin, _) = setup(&env);
         let depositor = Address::generate(&env);
         let landlord = Address::generate(&env);
         let deal_id = String::from_str(&env, "chall-window-1");
@@ -2843,7 +2843,7 @@ mod test {
     fn settle_release_timeout_before_window_expires_rejected() {
         let env = Env::default();
         env.mock_all_auths();
-        let (contract_id, client, admin, operator, token, token_admin, _) = setup(&env);
+        let (contract_id, client, admin, operator, token, _token_admin, _) = setup(&env);
         let depositor = Address::generate(&env);
         let landlord = Address::generate(&env);
         let deal_id = String::from_str(&env, "settle-early-1");
@@ -2897,7 +2897,7 @@ mod test {
     fn settle_dispute_timeout_before_expiry_rejected() {
         let env = Env::default();
         env.mock_all_auths();
-        let (contract_id, client, admin, operator, token, token_admin, _) = setup(&env);
+        let (contract_id, client, admin, operator, token, _token_admin, _) = setup(&env);
         let depositor = Address::generate(&env);
         let landlord = Address::generate(&env);
         let resolver = Address::generate(&env);
@@ -2958,7 +2958,7 @@ mod test {
     fn settle_dispute_timeout_after_expiry_refunds_depositor() {
         let env = Env::default();
         env.mock_all_auths();
-        let (contract_id, client, admin, operator, token, token_admin, _) = setup(&env);
+        let (contract_id, client, admin, operator, token, _token_admin, _) = setup(&env);
         let depositor = Address::generate(&env);
         let landlord = Address::generate(&env);
         let deal_id = String::from_str(&env, "disp-timeout-ok");
@@ -3025,7 +3025,7 @@ mod test {
     fn freeze_blocks_release_but_not_deposit() {
         let env = Env::default();
         env.mock_all_auths();
-        let (contract_id, client, admin, operator, token, token_admin, _) = setup(&env);
+        let (contract_id, client, admin, operator, token, _token_admin, _) = setup(&env);
         let depositor = Address::generate(&env);
         let to = Address::generate(&env);
         let platform = Address::generate(&env);

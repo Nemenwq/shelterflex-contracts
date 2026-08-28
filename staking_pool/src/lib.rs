@@ -975,9 +975,10 @@ mod test {
         let hash = BytesN::from_array(&env, &[0u8; 32]);
 
         env.as_contract(&contract_id, || {
-            env.storage()
-                .instance()
-                .set(&super::DataKey::StateSchemaVersion, &0u32);
+            env.storage().instance().set(
+                &soroban_upgrade_governance_core::UpgradeGovernanceKey::StorageSchemaVersion,
+                &0u32,
+            );
         });
 
         env.mock_auths(&[MockAuth {
